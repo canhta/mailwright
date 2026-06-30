@@ -105,6 +105,7 @@ class AnswerService:
         self._history: list[tuple[str, str]] = []
 
     def _dispatch(self, name: str, args: dict) -> object:
+        log.info("answer: tool=%s args=%s", name, args)
         if name == "search_jira_jql":
             if not self._jira:
                 return {"error": "Jira not configured"}
@@ -178,6 +179,7 @@ class AnswerService:
         return result
 
     def answer(self, question: str) -> str:
+        log.info("answer: question=%r", question[:120])
         history_messages: list[dict] = []
         for q, a in self._history[-_MAX_HISTORY:]:
             history_messages.append({"role": "user", "content": q})
