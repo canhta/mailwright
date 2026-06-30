@@ -15,7 +15,13 @@ _SYSTEM = (
     "- Never use em dashes. Use a colon or comma instead.\n"
     "- No filler openers: 'Here is the breakdown', 'The gist is', 'As I mentioned', 'Sure!', etc.\n"
     "- Bullet lists only when there are 3 or more enumerable items. Otherwise use prose.\n"
-    "- Short by default. Go deeper only if the question explicitly asks for detail."
+    "- Short by default. Go deeper only if the question explicitly asks for detail.\n\n"
+    "Memory rules:\n"
+    "- If the owner asks you to remember a fact, note something for later, or always follow a "
+    "rule when drafting tickets, you MUST call store_fact or add_rule first.\n"
+    "- Never tell the owner something is saved, remembered, or noted unless the matching tool "
+    "call returned stored: true. If the tool call fails, say so plainly instead of pretending "
+    "it worked."
 )
 
 _TOOLS = [
@@ -104,9 +110,55 @@ _TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_rule",
+            "description": (
+                "Persist a behavioral rule the owner wants you to always follow when drafting "
+                "Jira tickets (tone, required fields, when to ask before creating, etc). The rule "
+                "takes effect immediately and shows up in /rules. Call this as soon as the owner "
+                "asks you to always do something a certain way — never reply that a rule is saved "
+                "unless this tool call succeeded."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "rule": {
+                        "type": "string",
+                        "description": "The rule, written as a clear standalone directive",
+                    },
+                },
+                "required": ["rule"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "store_fact",
+            "description": (
+                "Persist a standing background fact the owner wants you to remember permanently "
+                "(project context, definitions, business facts — not a drafting behavior rule, "
+                "use add_rule for those). Call this as soon as the owner asks you to remember or "
+                "note something — never reply that something is saved unless this tool call "
+                "succeeded."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fact": {
+                        "type": "string",
+                        "description": "The fact to remember, written as a standalone statement",
+                    },
+                },
+                "required": ["fact"],
+            },
+        },
+    },
 ]
 
-_MAX_HISTORY = 3
+_MAX_HISTORY = 10
 
 
 class AnswerService:
@@ -120,6 +172,7 @@ class AnswerService:
         jira=None,
         project_key: str = "",
         commands: list[tuple[str, str]] | None = None,
+        rulebook_repo=None,
     ) -> None:
         self._episodic = episodic_repo
         self._vectors = vector_store
@@ -129,6 +182,7 @@ class AnswerService:
         self._jira = jira
         self._project_key = project_key
         self._commands = commands or []
+        self._rules = rulebook_repo
         self._history: list[tuple[str, str]] = []
         self._system = self._build_system_prompt()
 
@@ -199,6 +253,26 @@ class AnswerService:
             entries = self._episodic.recent(limit=n)
             return [{"ts": e.ts, "content": e.content} for e in entries]
 
+        if name == "add_rule":
+            text = args.get("rule", "").strip()
+            if not text:
+                return {"stored": False, "error": "rule text is empty"}
+            if not self._rules:
+                return {"stored": False, "error": "rulebook not configured"}
+            rule_id = self._rules.add("manual", text, status="active")
+            return {"stored": True, "rule_id": rule_id, "rule": text}
+
+        if name == "store_fact":
+            text = args.get("fact", "").strip()
+            if not text:
+                return {"stored": False, "error": "fact text is empty"}
+            try:
+                vec = self._embedder.embed([text])[0]
+                self._vectors.add("fact", text, vec)
+                return {"stored": True, "fact": text}
+            except Exception as exc:
+                return {"stored": False, "error": str(exc)}
+
         return {"error": f"Unknown tool: {name}"}
 
     def _format_jql_results(self, issues: list[dict]) -> dict:
@@ -243,7 +317,8 @@ class AnswerService:
             else [
                 t
                 for t in _TOOLS
-                if t["function"]["name"] in ("search_memory", "get_recent_events")  # type: ignore[index]
+                if t["function"]["name"]  # type: ignore[index]
+                in ("search_memory", "get_recent_events", "store_fact", "add_rule")
             ]
         )
 

@@ -132,6 +132,7 @@ def build_agent(settings: Settings) -> Application:
         jira=jira,
         project_key=settings.jira_project_key,
         commands=[(c.name, c.description) for c in _COMMANDS],
+        rulebook_repo=rulebook,
     )
     reflection_svc = ReflectionService(episodic, style, rulebook, draft_llm, lookback=50)
 

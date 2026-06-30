@@ -3,6 +3,7 @@ from mailwright.db.schema import init_db
 from mailwright.memory.vector_store import VectorStore
 from mailwright.pipeline.answer_service import AnswerService
 from mailwright.repositories.episodic import EpisodicRepo
+from mailwright.repositories.rulebook import RulebookRepo
 
 
 class FakeEmbedder:
@@ -155,3 +156,166 @@ def test_system_prompt_includes_available_commands(tmp_path):
 
     assert "/pause" in captured["system"]
     assert "Pause automatic polling" in captured["system"]
+
+
+def test_add_rule_tool_persists_active_rule(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    rb = RulebookRepo(conn)
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        VectorStore(conn),
+        FakeEmbedder(),
+        FakeToolCallLLM(),
+        topk=3,
+        rulebook_repo=rb,
+    )
+
+    result = svc._dispatch("add_rule", {"rule": "Always write tickets in a human voice."})
+
+    assert result["stored"] is True
+    active = rb.list_active()
+    assert any(r.text == "Always write tickets in a human voice." for r in active)
+
+
+def test_add_rule_tool_without_rulebook_configured(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        VectorStore(conn),
+        FakeEmbedder(),
+        FakeToolCallLLM(),
+        topk=3,
+    )
+
+    result = svc._dispatch("add_rule", {"rule": "Some rule"})
+
+    assert result["stored"] is False
+    assert "error" in result
+
+
+def test_add_rule_tool_rejects_empty_rule(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    rb = RulebookRepo(conn)
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        VectorStore(conn),
+        FakeEmbedder(),
+        FakeToolCallLLM(),
+        topk=3,
+        rulebook_repo=rb,
+    )
+
+    result = svc._dispatch("add_rule", {"rule": "   "})
+
+    assert result["stored"] is False
+    assert "error" in result
+
+
+def test_store_fact_tool_persists_to_vector_store(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    vs = VectorStore(conn)
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        vs,
+        FakeEmbedder(),
+        FakeToolCallLLM(),
+        topk=3,
+    )
+
+    result = svc._dispatch(
+        "store_fact", {"fact": "sessionup.com is the new version of legacy teacherzone.com"}
+    )
+
+    assert result["stored"] is True
+    hits = vs.search("fact", [1.0, 0.0], k=5)
+    assert any("sessionup.com" in text for text, _ in hits)
+
+
+def test_store_fact_tool_rejects_empty_fact(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        VectorStore(conn),
+        FakeEmbedder(),
+        FakeToolCallLLM(),
+        topk=3,
+    )
+
+    result = svc._dispatch("store_fact", {"fact": "  "})
+
+    assert result["stored"] is False
+    assert "error" in result
+
+
+def test_memory_write_tools_available_without_jira(tmp_path):
+    captured = {}
+
+    class RecordingLLM:
+        def run(self, system, messages, tools, dispatch, max_iter=5):
+            captured["tools"] = tools
+            return "reply"
+
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        VectorStore(conn),
+        FakeEmbedder(),
+        RecordingLLM(),
+        topk=3,
+    )
+
+    svc.answer("remember that sessionup is the new teacherzone")
+
+    names = {t["function"]["name"] for t in captured["tools"]}
+    assert "store_fact" in names
+    assert "add_rule" in names
+
+
+def test_fact_stored_via_chat_is_surfaced_in_drafting_context(tmp_path):
+    from mailwright.memory.context import MemoryContext
+    from mailwright.repositories.style import StyleRepo
+
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    vs = VectorStore(conn)
+    embedder = FakeEmbedder()
+    svc = AnswerService(EpisodicRepo(conn), vs, embedder, FakeToolCallLLM(), topk=3)
+
+    svc._dispatch("store_fact", {"fact": "TeacherZone is maintenance-only, no new features"})
+
+    ctx = MemoryContext(RulebookRepo(conn), StyleRepo(conn), vs, embedder, topk=3)
+    block = ctx.build("draft a ticket for a teacherzone bug")
+
+    assert "TeacherZone is maintenance-only" in block
+
+
+def test_history_retains_ten_turns(tmp_path):
+    received_messages: list[list] = []
+
+    class RecordingLLM:
+        def run(self, system, messages, tools, dispatch, max_iter=5):
+            received_messages.append(list(messages))
+            return "reply"
+
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        VectorStore(conn),
+        FakeEmbedder(),
+        RecordingLLM(),
+        topk=3,
+    )
+
+    for i in range(5):
+        svc.answer(f"question {i}")
+
+    last_messages = received_messages[-1]
+    contents = [m.get("content", "") for m in last_messages]
+    assert any("question 0" in c for c in contents)
