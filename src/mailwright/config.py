@@ -7,8 +7,12 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    # Outlook Web (OWA) browser-automation session
-    owa_profile_path: str = "data/owa_profile"
+    # Outlook Web (OWA) browser-automation session — encrypted storage_state blob
+    owa_state_path: str = "data/owa_state.enc"
+    # If set, `login` pushes the captured session here (POST /owa/session) instead
+    # of writing it locally; the receiving server must share OWA_UPLOAD_SECRET.
+    owa_upload_url: str = ""
+    owa_upload_secret: str = ""
 
     # Mail filtering
     mail_folder: str = "Inbox"

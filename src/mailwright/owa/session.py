@@ -2,7 +2,6 @@ import base64
 import json
 import time
 from collections.abc import Callable
-from pathlib import Path
 
 OWA_URL = "https://outlook.office.com/mail/"
 
@@ -70,41 +69,51 @@ class OwaSession:
 # --- Playwright glue (thin; verified manually like the spike) ---------------
 
 
-def _launch_persistent(p, profile_path: str, headless: bool):
+def _launch_browser(p, channel_preference=("chrome", "msedge", None)):
     """Prefer a real installed browser (Microsoft login blocks bundled Chromium
     more often); fall back to Playwright's Chromium."""
-    Path(profile_path).mkdir(parents=True, exist_ok=True)
     last: Exception | None = None
-    for channel in ("chrome", "msedge", None):
+    for channel in channel_preference:
         try:
-            kwargs = dict(user_data_dir=profile_path, headless=headless)
-            if channel:
-                kwargs["channel"] = channel
-            return p.chromium.launch_persistent_context(**kwargs)
+            kwargs = {"channel": channel} if channel else {}
+            return p.chromium.launch(headless=True, **kwargs)
         except Exception as e:  # noqa: BLE001
             last = e
     raise last  # type: ignore[misc]
 
 
-def interactive_login(profile_path: str, owa_url: str = OWA_URL) -> None:
-    """One-time headful login that establishes the persistent OWA profile."""
+def interactive_login(owa_url: str = OWA_URL) -> dict:
+    """One-time headful login. Returns the captured storage_state (cookies +
+    localStorage) — the portable artifact needed to mint a token headless
+    elsewhere, without copying a whole browser profile directory."""
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as p:
-        ctx = _launch_persistent(p, profile_path, headless=False)
-        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        last: Exception | None = None
+        browser = None
+        for channel in ("chrome", "msedge", None):
+            try:
+                kwargs = {"channel": channel} if channel else {}
+                browser = p.chromium.launch(headless=False, **kwargs)
+                break
+            except Exception as e:  # noqa: BLE001
+                last = e
+        if browser is None:
+            raise last  # type: ignore[misc]
+        ctx = browser.new_context()
+        page = ctx.new_page()
         page.goto(owa_url, wait_until="domcontentloaded", timeout=120_000)
         input(
             "\n>>> Sign in with your COMPANY account + MFA.\n"
             ">>> When your INBOX is fully loaded, return here and press ENTER...\n"
         )
-        ctx.close()
+        state = ctx.storage_state()
+        browser.close()
+    return state  # type: ignore[no-any-return]
 
 
-def playwright_token_extractor(
-    profile_path: str, owa_url: str = OWA_URL, settle_ms: int = 12_000
-) -> str:
-    """Load OWA headless with the persistent profile and capture the bearer
+def playwright_token_extractor(state: dict, owa_url: str = OWA_URL, settle_ms: int = 12_000) -> str:
+    """Load OWA headless with an injected storage_state and capture the bearer
     token OWA uses for its own API calls. Raises OwaLoginRequired if none is
     seen (session expired)."""
     from playwright.sync_api import sync_playwright
@@ -112,8 +121,9 @@ def playwright_token_extractor(
     holder: dict[str, str] = {}
 
     with sync_playwright() as p:
-        ctx = _launch_persistent(p, profile_path, headless=True)
-        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        browser = _launch_browser(p)
+        ctx = browser.new_context(storage_state=state)
+        page = ctx.new_page()
 
         def on_request(req) -> None:
             auth = req.headers.get("authorization", "")
@@ -128,7 +138,7 @@ def playwright_token_extractor(
         page.goto(owa_url, wait_until="domcontentloaded", timeout=120_000)
         page.wait_for_timeout(settle_ms)
         landed = page.url
-        ctx.close()
+        browser.close()
 
     if "token" not in holder:
         raise OwaLoginRequired(f"No OWA token captured (landed on {landed}); run `login` again.")

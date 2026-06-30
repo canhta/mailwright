@@ -5,7 +5,9 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from mailwright.webhook.parse import parse_jira_webhook, verify_secret
 
 
-def build_webhook_app(secret, status_service, send_notice) -> FastAPI:
+def build_webhook_app(
+    secret, status_service, send_notice, owa_secret="", save_owa_state=None
+) -> FastAPI:
     app = FastAPI()
 
     @app.get("/health")
@@ -26,6 +28,16 @@ def build_webhook_app(secret, status_service, send_notice) -> FastAPI:
                     await send_notice(message)
                 else:
                     send_notice(message)
+        return {"ok": True}
+
+    @app.post("/owa/session")
+    async def owa_session(request: Request, x_owa_upload_secret: str | None = Header(default=None)):
+        provided = x_owa_upload_secret or request.query_params.get("secret") or ""
+        if not verify_secret(provided, owa_secret):
+            raise HTTPException(status_code=401, detail="bad secret")
+        payload = await request.json()
+        if save_owa_state is not None:
+            save_owa_state(payload)
         return {"ok": True}
 
     return app

@@ -31,7 +31,8 @@ from mailwright.memory.embedder import OpenAIEmbedder
 from mailwright.memory.manager import MemoryManager
 from mailwright.memory.vector_store import VectorStore
 from mailwright.owa.rest_client import OutlookRestClient
-from mailwright.owa.session import OwaSession, playwright_token_extractor
+from mailwright.owa.session import OwaLoginRequired, OwaSession, playwright_token_extractor
+from mailwright.owa.state_store import read_state_file, write_state_file
 from mailwright.pipeline.answer_service import AnswerService
 from mailwright.pipeline.approval_service import ApprovalService
 from mailwright.pipeline.nudge_service import NudgeService
@@ -64,7 +65,11 @@ def build_agent(settings: Settings) -> Application:
     approvals = ApprovalRepo(conn)
     status_events = StatusEventRepo(conn)
 
-    session = OwaSession(lambda: playwright_token_extractor(settings.owa_profile_path))
+    session = OwaSession(
+        lambda: playwright_token_extractor(
+            read_state_file(settings.owa_state_path, settings.fernet_key)
+        )
+    )
     owa = OutlookRestClient(session.get_token, httpx.Client(timeout=30))
     poller = MailPoller(owa, processed, settings)
 
@@ -204,6 +209,15 @@ def _notifier(context) -> TelegramNotifier:
     return TelegramNotifier(context.bot, s.telegram_chat_id, context.bot_data["approvals"])
 
 
+def _poll_failure_text(exc: Exception) -> str:
+    if isinstance(exc, OwaLoginRequired):
+        return (
+            "🔒 OWA session expired. Run <code>mailwright login</code> on your "
+            "laptop to refresh it — it'll push the new session automatically."
+        )
+    return f"⚠️ Poll failed: {h(exc)}"
+
+
 async def _poll_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     pipeline = context.bot_data["pipeline"]
     poller = context.bot_data["poller"]
@@ -215,7 +229,7 @@ async def _poll_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         log.exception("poll_job: poll failed — %s", exc)
         await context.bot.send_message(
             context.bot_data["settings"].telegram_chat_id,
-            f"⚠️ Poll failed: {h(exc)}",
+            _poll_failure_text(exc),
             parse_mode=ParseMode.HTML,
         )
         return
@@ -346,7 +360,13 @@ async def run_agent(settings: Settings) -> None:
         status_event_repo=app.bot_data["status_events"],
     )
     notifier = TelegramNotifier(app.bot, settings.telegram_chat_id, app.bot_data["approvals"])
-    web = build_webhook_app(settings.webhook_secret, status_service, notifier.send)
+    web = build_webhook_app(
+        settings.webhook_secret,
+        status_service,
+        notifier.send,
+        settings.owa_upload_secret,
+        lambda state: write_state_file(settings.owa_state_path, state, settings.fernet_key),
+    )
     config = uvicorn.Config(web, host="0.0.0.0", port=settings.webhook_port, log_level="info")
     server = uvicorn.Server(config)
 

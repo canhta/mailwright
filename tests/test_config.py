@@ -9,18 +9,40 @@ def test_settings_load_from_env(monkeypatch):
     s = Settings()
 
     assert s.company_domain == "example.com"
-    assert s.owa_profile_path == "data/owa_profile"  # default
+    assert s.owa_state_path == "data/owa_state.enc"  # default
     assert s.mail_folder == "Inbox"  # default
     assert s.db_path == "data/app.db"  # default
     assert s.sender_allowlist == ["a@x.com", "product@y.com", "y.com"]
 
 
-def test_owa_profile_path_override(monkeypatch):
+def test_owa_state_path_override(monkeypatch):
     monkeypatch.setenv("COMPANY_DOMAIN", "example.com")
     monkeypatch.setenv("FERNET_KEY", "k" * 44)
-    monkeypatch.setenv("OWA_PROFILE_PATH", "/custom/profile")
+    monkeypatch.setenv("OWA_STATE_PATH", "/custom/state.enc")
 
-    assert Settings().owa_profile_path == "/custom/profile"
+    assert Settings().owa_state_path == "/custom/state.enc"
+
+
+def test_owa_upload_settings_default_empty(monkeypatch):
+    monkeypatch.setenv("COMPANY_DOMAIN", "example.com")
+    monkeypatch.setenv("FERNET_KEY", "k" * 44)
+
+    s = Settings()
+
+    assert s.owa_upload_url == ""
+    assert s.owa_upload_secret == ""
+
+
+def test_owa_upload_settings_override(monkeypatch):
+    monkeypatch.setenv("COMPANY_DOMAIN", "example.com")
+    monkeypatch.setenv("FERNET_KEY", "k" * 44)
+    monkeypatch.setenv("OWA_UPLOAD_URL", "https://vps.example/owa/session")
+    monkeypatch.setenv("OWA_UPLOAD_SECRET", "s3cr3t")
+
+    s = Settings()
+
+    assert s.owa_upload_url == "https://vps.example/owa/session"
+    assert s.owa_upload_secret == "s3cr3t"
 
 
 def test_jira_settings_load_from_env(monkeypatch):

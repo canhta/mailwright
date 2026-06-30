@@ -19,6 +19,7 @@ from mailwright.owa.session import (
     interactive_login,
     playwright_token_extractor,
 )
+from mailwright.owa.state_store import read_state_file, write_state_file
 from mailwright.poller.mail_poller import MailPoller
 from mailwright.repositories.processed_mails import ProcessedMailRepo
 
@@ -74,15 +75,29 @@ def _build_poller() -> MailPoller:
     conn = get_connection(settings.db_path)
     init_db(conn)
     repo = ProcessedMailRepo(conn)
-    session = OwaSession(lambda: playwright_token_extractor(settings.owa_profile_path))
+    session = OwaSession(
+        lambda: playwright_token_extractor(
+            read_state_file(settings.owa_state_path, settings.fernet_key)
+        )
+    )
     client = OutlookRestClient(session.get_token, httpx.Client(timeout=30))
     return MailPoller(client, repo, settings)
 
 
 def _cmd_login() -> int:
     settings = Settings()
-    interactive_login(settings.owa_profile_path)
-    print("Login complete; OWA session profile saved.")
+    state = interactive_login()
+    if settings.owa_upload_url:
+        httpx.post(
+            settings.owa_upload_url,
+            json=state,
+            headers={"X-Owa-Upload-Secret": settings.owa_upload_secret},
+            timeout=30,
+        ).raise_for_status()
+        print("Login complete; OWA session pushed to the server.")
+    else:
+        write_state_file(settings.owa_state_path, state, settings.fernet_key)
+        print(f"Login complete; OWA session saved to {settings.owa_state_path}.")
     return 0
 
 
