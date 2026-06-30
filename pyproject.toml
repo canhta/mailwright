@@ -1,0 +1,75 @@
+[project]
+name = "mailwright"
+version = "0.1.0"
+description = "Personal mail -> Jira agent"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic-settings>=2.4",
+    "httpx>=0.27",
+    "cryptography>=43.0",
+    "playwright>=1.61.0",
+    "openai>=1.50",
+    "pypdf>=4.0",
+    "python-docx>=1.1",
+    "python-telegram-bot[job-queue]>=21",
+    "fastapi>=0.111",
+    "uvicorn>=0.30",
+    "numpy>=2.5.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.3", "ruff>=0.5", "mypy>=1.11", "pre-commit>=3.8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mailwright"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+exclude = ["data", "spikes", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src"
+ignore_missing_imports = true
+warn_return_any = true
+warn_unused_ignores = true
+check_untyped_defs = true
+exclude = ["spikes/"]
+
+[[tool.mypy.overrides]]
+module = ["playwright.*", "telegram.*", "uvicorn.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Telegram update handlers: update.message is always set in message handlers
+# but typed as Message | None; suppressing union-attr for the bot wiring file.
+module = ["mailwright.telegram.bot"]
+disable_error_code = ["union-attr", "arg-type", "return-value", "index"]
+
+[[tool.mypy.overrides]]
+# pydantic-settings loads fields from env at runtime; mypy can't infer this,
+# so Settings() calls appear to be missing required arguments.
+module = ["mailwright.cli"]
+disable_error_code = ["call-arg", "arg-type"]
+
+[[tool.mypy.overrides]]
+# Tests use Settings(**kwargs) and fake collaborators that satisfy duck-typing
+# but not Protocol structural checks. Suppress framework-level false positives.
+module = ["tests.*"]
+disable_error_code = ["call-arg", "arg-type", "var-annotated", "index", "operator", "assignment"]

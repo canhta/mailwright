@@ -1,0 +1,275 @@
+import asyncio
+
+import httpx
+import uvicorn
+from openai import OpenAI
+from telegram import Update
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
+
+from mailwright.brain.attachment_gate import AttachmentGate
+from mailwright.brain.attachment_loader import AttachmentLoader
+from mailwright.brain.classifier import MailClassifier
+from mailwright.brain.drafter import TicketDrafter
+from mailwright.brain.llm import OpenAITextLLM, build_structured_llm
+from mailwright.config import Settings
+from mailwright.db.connection import get_connection
+from mailwright.db.schema import init_db
+from mailwright.jira.client import JiraClient
+from mailwright.jira.ticket_service import TicketService
+from mailwright.memory.context import MemoryContext
+from mailwright.memory.embedder import OpenAIEmbedder
+from mailwright.memory.feedback import FeedbackRecorder
+from mailwright.memory.vector_store import VectorStore
+from mailwright.owa.rest_client import OutlookRestClient
+from mailwright.owa.session import OwaSession, playwright_token_extractor
+from mailwright.pipeline.answer_service import AnswerService
+from mailwright.pipeline.approval_service import ApprovalService
+from mailwright.pipeline.nudge_service import NudgeService
+from mailwright.pipeline.reflection_service import ReflectionService
+from mailwright.pipeline.service import PipelineService
+from mailwright.pipeline.status_service import StatusReplyService
+from mailwright.pipeline.summary_service import SummaryService
+from mailwright.pipeline.uploader import AttachmentUploader
+from mailwright.poller.mail_poller import MailPoller
+from mailwright.repositories.approvals import ApprovalRepo
+from mailwright.repositories.episodic import EpisodicRepo
+from mailwright.repositories.processed_mails import ProcessedMailRepo
+from mailwright.repositories.rulebook import RulebookRepo
+from mailwright.repositories.status_events import StatusEventRepo
+from mailwright.repositories.style import StyleRepo
+from mailwright.repositories.thread_ticket_map import ThreadTicketRepo
+from mailwright.telegram.dispatch import handle_callback
+from mailwright.telegram.notifier import TelegramNotifier
+from mailwright.webhook.app import build_webhook_app
+
+
+def build_agent(settings: Settings) -> Application:
+    conn = get_connection(settings.db_path)
+    init_db(conn)
+    processed = ProcessedMailRepo(conn)
+    approvals = ApprovalRepo(conn)
+    status_events = StatusEventRepo(conn)
+
+    session = OwaSession(lambda: playwright_token_extractor(settings.owa_profile_path))
+    owa = OutlookRestClient(session.get_token, httpx.Client(timeout=30))
+    poller = MailPoller(owa, processed, settings)
+
+    llm_kwargs = {"api_key": settings.llm_api_key or "x"}
+    if settings.llm_base_url:
+        llm_kwargs["base_url"] = settings.llm_base_url
+    oa = OpenAI(**llm_kwargs)
+    classify_llm = build_structured_llm(
+        oa, settings.llm_classify_model, settings.llm_structured_mode
+    )
+    draft_llm = build_structured_llm(oa, settings.llm_draft_model, settings.llm_structured_mode)
+    classifier = MailClassifier(classify_llm)
+    drafter = TicketDrafter(draft_llm)
+    gate = AttachmentGate(classify_llm)
+    loader = AttachmentLoader(owa, gate, settings.llm_vision_enabled)
+
+    jira = JiraClient(
+        settings.jira_base_url,
+        settings.jira_email,
+        settings.jira_api_token,
+        httpx.Client(timeout=30),
+    )
+    thread_repo = ThreadTicketRepo(conn)
+    tickets = TicketService(jira, thread_repo, settings.jira_project_key)
+
+    uploader = AttachmentUploader(owa, jira)
+
+    # Memory substrate
+    embed_kwargs = {"api_key": settings.embed_api_key or "x"}
+    if settings.embed_base_url:
+        embed_kwargs["base_url"] = settings.embed_base_url
+    embed_client = OpenAI(**embed_kwargs)
+    embedder = OpenAIEmbedder(embed_client, settings.embed_model)
+    vector_store = VectorStore(conn)
+    episodic = EpisodicRepo(conn)
+    rulebook = RulebookRepo(conn)
+    style = StyleRepo(conn)
+    memory_ctx = MemoryContext(rulebook, style, vector_store, embedder, settings.memory_topk)
+    feedback = FeedbackRecorder(embedder, vector_store, episodic)
+    text_llm = OpenAITextLLM(oa, settings.llm_draft_model)
+    answer_svc = AnswerService(episodic, vector_store, embedder, text_llm, settings.memory_topk)
+    reflection_svc = ReflectionService(episodic, style, rulebook, draft_llm, lookback=50)
+
+    pipeline = PipelineService(
+        classifier,
+        loader,
+        drafter,
+        tickets,
+        uploader,
+        approvals,
+        processed,
+        settings.confidence_threshold,
+        feedback=feedback,
+        memory_context=memory_ctx,
+    )
+    approval_service = ApprovalService(
+        approvals, tickets, uploader, settings.telegram_allowlist, feedback=feedback
+    )
+
+    app = Application.builder().token(settings.telegram_bot_token).build()
+    app.bot_data.update(
+        {
+            "settings": settings,
+            "poller": poller,
+            "pipeline": pipeline,
+            "approval_service": approval_service,
+            "approvals": approvals,
+            "processed": processed,
+            "status_events": status_events,
+            "owa": owa,
+            "thread_repo": thread_repo,
+            "answer_service": answer_svc,
+            "reflection": reflection_svc,
+            "rulebook": rulebook,
+        }
+    )
+    app.add_handler(CallbackQueryHandler(_on_callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _on_text))
+    app.add_handler(CommandHandler("pending", _on_pending))
+    app.add_handler(CommandHandler("rules", _on_rules))
+    app.job_queue.run_repeating(_poll_job, interval=settings.poll_interval_seconds, first=5)
+    from datetime import time as dtime
+
+    hh, mm = (int(x) for x in settings.summary_time.split(":"))
+    app.job_queue.run_daily(_summary_job, time=dtime(hour=hh, minute=mm))
+    app.job_queue.run_daily(_nudge_job, time=dtime(hour=hh, minute=mm))
+    app.job_queue.run_daily(_reflect_job, time=dtime(hour=2, minute=0))
+    return app
+
+
+async def _summary_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    from datetime import datetime
+
+    s = context.bot_data["settings"]
+    svc = SummaryService(
+        context.bot_data["processed"],
+        context.bot_data["approvals"],
+        context.bot_data["status_events"],
+        s.summary_window_hours,
+    )
+    await _notifier(context).send(svc.build(datetime.now()))
+
+
+async def _nudge_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    from datetime import datetime
+
+    s = context.bot_data["settings"]
+    msg = NudgeService(context.bot_data["approvals"], s.nudge_stale_days).build(datetime.now())
+    if msg is not None:
+        await _notifier(context).send(msg)
+
+
+def _notifier(context) -> TelegramNotifier:
+    s = context.bot_data["settings"]
+    return TelegramNotifier(context.bot, s.telegram_chat_id, context.bot_data["approvals"])
+
+
+async def _poll_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    pipeline = context.bot_data["pipeline"]
+    poller = context.bot_data["poller"]
+    notifier = _notifier(context)
+    try:
+        new = await asyncio.get_event_loop().run_in_executor(None, poller.poll)
+    except Exception as exc:
+        await context.bot.send_message(
+            context.bot_data["settings"].telegram_chat_id, f"⚠️ Poll failed: {exc}"
+        )
+        return
+    for message in new:
+        for effect in pipeline.process_message(message):
+            await notifier.send(effect)
+
+
+async def _on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    result = handle_callback(context.bot_data["approval_service"], query.data, query.from_user.id)
+    if result is None:
+        await query.answer()
+        return
+    action, approval_id, outcome = result
+    if not outcome.authorized:
+        await query.answer(outcome.text, show_alert=True)
+        return
+    await query.answer()
+    if outcome.edit_card:
+        await query.edit_message_text(outcome.text)
+    if action == "edit":
+        context.user_data["awaiting_edit_id"] = approval_id
+
+
+async def _on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    approval_id = context.user_data.pop("awaiting_edit_id", None)
+    if approval_id is not None:
+        outcome = context.bot_data["approval_service"].apply_edit(
+            approval_id, update.message.text, update.effective_user.id
+        )
+        await update.message.reply_text(outcome.text)
+        return
+    answer = context.bot_data["answer_service"].answer(update.message.text)
+    await update.message.reply_text(answer)
+
+
+async def _on_rules(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    args = context.args
+    rb = context.bot_data["rulebook"]
+    if args and args[0] == "approve" and len(args) > 1 and args[1].isdigit():
+        rb.activate(int(args[1]))
+        await update.message.reply_text(f"Rule {args[1]} activated.")
+        return
+    active = rb.render() or "(none)"
+    proposed = "\n".join(f"  #{r.id} {r.text}" for r in rb.list_proposed()) or "  (none)"
+    await update.message.reply_text(
+        f"Active rules:\n{active}\n\nProposed (use /rules approve <id>):\n{proposed}"
+    )
+
+
+async def _on_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    pending = context.bot_data["approvals"].list_pending()
+    if not pending:
+        await update.message.reply_text("No pending approvals.")
+        return
+    lines = [f"#{r.id}: {r.payload.get('draft', {}).get('summary', '?')}" for r in pending]
+    await update.message.reply_text("Pending approvals:\n" + "\n".join(lines))
+
+
+async def _reflect_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.bot_data["reflection"].run()
+
+
+async def run_agent(settings: Settings) -> None:
+    app = build_agent(settings)
+    status_service = StatusReplyService(
+        app.bot_data["owa"],
+        app.bot_data["thread_repo"],
+        settings.status_targets,
+        settings.jira_base_url,
+        status_event_repo=app.bot_data["status_events"],
+    )
+    notifier = TelegramNotifier(app.bot, settings.telegram_chat_id, app.bot_data["approvals"])
+    web = build_webhook_app(settings.webhook_secret, status_service, notifier.send)
+    config = uvicorn.Config(web, host="0.0.0.0", port=settings.webhook_port, log_level="info")
+    server = uvicorn.Server(config)
+
+    async with app:
+        await app.start()
+        await app.bot.set_my_commands(
+            [
+                ("pending", "Show mails waiting for your approval"),
+                ("rules", "List active drafting rules"),
+            ]
+        )
+        await app.updater.start_polling()
+        await server.serve()
+        await app.updater.stop()
+        await app.stop()
