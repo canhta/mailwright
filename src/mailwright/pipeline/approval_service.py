@@ -48,7 +48,9 @@ class ApprovalService:
         if self._replier:
             self._replier.reply_link(payload["conversation_id"], owa_message_id, res.key, res.url)
         if self._feedback:
-            self._feedback.record_created(payload.get("subject", ""), draft, res.key)
+            sender = payload.get("sender", "")
+            subject = payload.get("subject", "")
+            self._feedback.record_created(f"From: {sender}\nSubject: {subject}", draft, res.key)
         return f"✅ Created {res.key}: {res.url}"
 
     def decide(self, approval_id: int, action: str, user_id: int) -> DecisionOutcome:

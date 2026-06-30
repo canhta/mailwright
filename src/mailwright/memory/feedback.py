@@ -11,7 +11,18 @@ class FeedbackRecorder:
 
     def record_created(self, context_text: str, draft, ticket_key: str) -> None:
         self._add_fewshot(context_text, draft.summary, draft.description)
-        self._episodic.add("ticket_created", f"{ticket_key}: {draft.summary}", ref=ticket_key)
+        # Extract just From:/Subject: header lines — drop the body to avoid
+        # email signatures being mistaken for the sender by the LLM.
+        header = "\n".join(
+            line
+            for line in context_text.splitlines()
+            if line.startswith("From:") or line.startswith("Subject:")
+        )
+        self._episodic.add(
+            "ticket_created",
+            f"Ticket: {ticket_key}\nSummary: {draft.summary}\nType: {draft.issue_type}\n{header}",
+            ref=ticket_key,
+        )
 
     def record_edit(self, context_text: str, old_desc: str, new_desc: str) -> None:
         self._add_fewshot(context_text, "(edited)", new_desc)

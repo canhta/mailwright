@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 import httpx
 import uvicorn
@@ -33,6 +34,7 @@ from mailwright.pipeline.answer_service import AnswerService
 from mailwright.pipeline.approval_service import ApprovalService
 from mailwright.pipeline.nudge_service import NudgeService
 from mailwright.pipeline.reflection_service import ReflectionService
+from mailwright.pipeline.replier import Replier
 from mailwright.pipeline.service import PipelineService
 from mailwright.pipeline.status_service import StatusReplyService
 from mailwright.pipeline.summary_service import SummaryService
@@ -48,6 +50,8 @@ from mailwright.repositories.thread_ticket_map import ThreadTicketRepo
 from mailwright.telegram.dispatch import handle_callback
 from mailwright.telegram.notifier import TelegramNotifier
 from mailwright.webhook.app import build_webhook_app
+
+log = logging.getLogger(__name__)
 
 
 def build_agent(settings: Settings) -> Application:
@@ -84,6 +88,7 @@ def build_agent(settings: Settings) -> Application:
     tickets = TicketService(jira, thread_repo, settings.jira_project_key)
 
     uploader = AttachmentUploader(owa, jira)
+    replier = Replier(owa, thread_repo)
 
     # Memory substrate
     embed_kwargs = {"api_key": settings.embed_api_key or "x"}
@@ -98,7 +103,15 @@ def build_agent(settings: Settings) -> Application:
     memory_ctx = MemoryContext(rulebook, style, vector_store, embedder, settings.memory_topk)
     feedback = FeedbackRecorder(embedder, vector_store, episodic)
     text_llm = OpenAITextLLM(oa, settings.llm_draft_model)
-    answer_svc = AnswerService(episodic, vector_store, embedder, text_llm, settings.memory_topk)
+    answer_svc = AnswerService(
+        episodic,
+        vector_store,
+        embedder,
+        text_llm,
+        settings.memory_topk,
+        jira=jira,
+        project_key=settings.jira_project_key,
+    )
     reflection_svc = ReflectionService(episodic, style, rulebook, draft_llm, lookback=50)
 
     pipeline = PipelineService(
@@ -110,11 +123,17 @@ def build_agent(settings: Settings) -> Application:
         approvals,
         processed,
         settings.confidence_threshold,
+        replier=replier,
         feedback=feedback,
         memory_context=memory_ctx,
     )
     approval_service = ApprovalService(
-        approvals, tickets, uploader, settings.telegram_allowlist, feedback=feedback
+        approvals,
+        tickets,
+        uploader,
+        settings.telegram_allowlist,
+        replier=replier,
+        feedback=feedback,
     )
 
     app = Application.builder().token(settings.telegram_bot_token).build()
@@ -128,6 +147,7 @@ def build_agent(settings: Settings) -> Application:
             "processed": processed,
             "status_events": status_events,
             "owa": owa,
+            "jira": jira,
             "thread_repo": thread_repo,
             "answer_service": answer_svc,
             "reflection": reflection_svc,
@@ -138,6 +158,8 @@ def build_agent(settings: Settings) -> Application:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _on_text))
     app.add_handler(CommandHandler("pending", _on_pending))
     app.add_handler(CommandHandler("rules", _on_rules))
+    app.add_handler(CommandHandler("poll", _on_poll))
+    app.add_handler(CommandHandler("delete", _on_delete))
     app.job_queue.run_repeating(_poll_job, interval=settings.poll_interval_seconds, first=5)
     from datetime import time as dtime
 
@@ -179,16 +201,20 @@ async def _poll_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     pipeline = context.bot_data["pipeline"]
     poller = context.bot_data["poller"]
     notifier = _notifier(context)
+    log.info("poll_job: starting")
     try:
         new = await asyncio.get_event_loop().run_in_executor(None, poller.poll)
     except Exception as exc:
+        log.exception("poll_job: poll failed — %s", exc)
         await context.bot.send_message(
             context.bot_data["settings"].telegram_chat_id, f"⚠️ Poll failed: {exc}"
         )
         return
+    log.info("poll_job: %d new message(s) to process", len(new))
     for message in new:
         for effect in pipeline.process_message(message):
             await notifier.send(effect)
+    log.info("poll_job: done")
 
 
 async def _on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -234,6 +260,31 @@ async def _on_rules(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def _on_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    keys = context.args
+    if not keys:
+        await update.message.reply_text("Usage: /delete SU-123 SU-456")
+        return
+    jira_client = context.bot_data["jira"]
+    lines = []
+    for key in keys:
+        key = key.upper().strip()
+        try:
+            jira_client.delete_issue(key)
+            log.info("delete: removed %s", key)
+            lines.append(f"🗑 Deleted {key}")
+        except Exception as exc:
+            log.warning("delete: failed to remove %s — %s", key, exc)
+            lines.append(f"❌ {key}: {exc}")
+    await update.message.reply_text("\n".join(lines))
+
+
+async def _on_poll(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text("⏳ Polling now...")
+    await _poll_job(context)
+    await update.message.reply_text("✅ Poll complete.")
+
+
 async def _on_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     pending = context.bot_data["approvals"].list_pending()
     if not pending:
@@ -265,8 +316,10 @@ async def run_agent(settings: Settings) -> None:
         await app.start()
         await app.bot.set_my_commands(
             [
+                ("poll", "Manually trigger a mail poll right now"),
                 ("pending", "Show mails waiting for your approval"),
                 ("rules", "List active drafting rules"),
+                ("delete", "Delete Jira tickets: /delete SU-123 SU-456"),
             ]
         )
         await app.updater.start_polling()

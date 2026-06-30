@@ -1,4 +1,6 @@
+import logging
 import sys
+from pathlib import Path
 
 import httpx
 from openai import OpenAI
@@ -119,10 +121,27 @@ def _cmd_agent() -> int:
     return 0
 
 
+def _setup_logging(log_path: str = "data/agent.log") -> None:
+    Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+    fmt = "%(asctime)s %(levelname)-8s %(name)s — %(message)s"
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format=fmt,
+        handlers=[
+            logging.StreamHandler(sys.stderr),
+            logging.FileHandler(log_path, encoding="utf-8"),
+        ],
+    )
+    # Quiet noisy third-party loggers
+    for noisy in ("httpx", "httpcore", "openai", "telegram", "uvicorn.access"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
 def run(argv: list[str]) -> int:
     if not argv:
         print("usage: mailwright <login|poll|triage|agent>", file=sys.stderr)
         return 2
+    _setup_logging()
     cmd = argv[0]
     if cmd == "login":
         return _cmd_login()

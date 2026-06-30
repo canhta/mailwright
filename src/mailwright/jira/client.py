@@ -63,6 +63,33 @@ class JiraClient:
         )
         resp.raise_for_status()
 
+    def search_jql(
+        self, jql: str, max_results: int = 30, extra_fields: list[str] | None = None
+    ) -> list[dict]:
+        fields = ["summary", "status", "issuetype", "priority", "assignee"] + (extra_fields or [])
+        resp = self._post(
+            f"{self._base}/rest/api/3/search/jql",
+            {"jql": jql, "fields": fields, "maxResults": max_results},
+        )
+        resp.raise_for_status()
+        return resp.json().get("issues", [])  # type: ignore[no-any-return]
+
+    def get_issue(self, key: str) -> dict:
+        resp = self._http.get(
+            f"{self._base}/rest/api/3/issue/{key}",
+            params={"fields": "summary,status,issuetype,priority,assignee,description"},
+            headers=self._headers(),
+        )
+        resp.raise_for_status()
+        return resp.json()  # type: ignore[no-any-return]
+
+    def delete_issue(self, key: str) -> None:
+        resp = self._http.delete(
+            f"{self._base}/rest/api/3/issue/{key}",
+            headers=self._headers(),
+        )
+        resp.raise_for_status()
+
     def search_issues(self, jql: str, max_results: int = 5) -> list[DuplicateCandidate]:
         resp = self._post(
             f"{self._base}/rest/api/3/search/jql",

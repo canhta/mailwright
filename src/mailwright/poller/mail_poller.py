@@ -1,6 +1,10 @@
+import logging
+
 from mailwright.config import Settings
 from mailwright.models import Message
 from mailwright.repositories.processed_mails import ProcessedMail, ProcessedMailRepo
+
+log = logging.getLogger(__name__)
 
 
 class MailPoller:
@@ -22,11 +26,14 @@ class MailPoller:
 
     def poll(self, since: str | None = None) -> list[Message]:
         messages = self._client.list_messages(self._settings.mail_folder, since=since)
+        log.info("poll: fetched %d message(s) from %s", len(messages), self._settings.mail_folder)
         new: list[Message] = []
         for m in messages:
             if not self._is_allowed(m.sender):
+                log.debug("poll: skip (not allowed) sender=%s subject=%r", m.sender, m.subject)
                 continue
             if self._repo.exists(m.internet_message_id):
+                log.debug("poll: skip (already seen) mid=%s", m.internet_message_id)
                 continue
             self._repo.add(
                 ProcessedMail(
@@ -41,5 +48,7 @@ class MailPoller:
                     has_attachments=m.has_attachments,
                 )
             )
+            log.info("poll: stored new mail sender=%s subject=%r", m.sender, m.subject)
             new.append(m)
+        log.info("poll: %d new candidate(s)", len(new))
         return new
