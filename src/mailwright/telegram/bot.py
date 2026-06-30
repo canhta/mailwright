@@ -133,6 +133,7 @@ def build_agent(settings: Settings) -> Application:
         project_key=settings.jira_project_key,
         commands=[(c.name, c.description) for c in _COMMANDS],
         rulebook_repo=rulebook,
+        owa=owa,
     )
     reflection_svc = ReflectionService(episodic, style, rulebook, draft_llm, lookback=50)
 
@@ -413,6 +414,11 @@ class _Command:
     handler: Callable[[Update, ContextTypes.DEFAULT_TYPE], object]
 
 
+async def _on_new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.bot_data["answer_service"].reset_history()
+    await update.message.reply_text("🆕 Started a new conversation.", parse_mode=ParseMode.HTML)
+
+
 async def _on_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     pending = context.bot_data["approvals"].list_pending()
     if not pending:
@@ -425,6 +431,7 @@ async def _on_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 _COMMANDS = [
+    _Command("new", "Start a fresh conversation, clearing chat history", _on_new),
     _Command("poll", "Manually trigger a mail poll right now", _on_poll),
     _Command("pending", "Show mails waiting for your approval", _on_pending),
     _Command("rules", "List active drafting rules", _on_rules),

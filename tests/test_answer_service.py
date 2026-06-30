@@ -41,7 +41,7 @@ def test_answer_returns_llm_response(tmp_path):
 
 def test_search_memory_tool_dispatches_to_episodic(tmp_path):
     svc, ep, _ = _svc(tmp_path)
-    ep.add("insight", "Auth bugs from teacherzone tend to be high priority")
+    ep.add("insight", "Auth bugs from example.com tend to be high priority")
     llm = FakeToolCallLLM(tool_calls=[("search_memory", {"query": "auth bugs"})])
     svc._llm = llm
     svc.answer("tell me about auth bugs")
@@ -227,12 +227,12 @@ def test_store_fact_tool_persists_to_vector_store(tmp_path):
     )
 
     result = svc._dispatch(
-        "store_fact", {"fact": "sessionup.com is the new version of legacy teacherzone.com"}
+        "store_fact", {"fact": "example.com is the new version of legacy legacyapp.example.com"}
     )
 
     assert result["stored"] is True
     hits = vs.search("fact", [1.0, 0.0], k=5)
-    assert any("sessionup.com" in text for text, _ in hits)
+    assert any("example.com" in text for text, _ in hits)
 
 
 def test_store_fact_tool_rejects_empty_fact(tmp_path):
@@ -270,7 +270,7 @@ def test_memory_write_tools_available_without_jira(tmp_path):
         topk=3,
     )
 
-    svc.answer("remember that sessionup is the new teacherzone")
+    svc.answer("remember that example-app is the new legacyapp")
 
     names = {t["function"]["name"] for t in captured["tools"]}
     assert "store_fact" in names
@@ -287,12 +287,198 @@ def test_fact_stored_via_chat_is_surfaced_in_drafting_context(tmp_path):
     embedder = FakeEmbedder()
     svc = AnswerService(EpisodicRepo(conn), vs, embedder, FakeToolCallLLM(), topk=3)
 
-    svc._dispatch("store_fact", {"fact": "TeacherZone is maintenance-only, no new features"})
+    svc._dispatch("store_fact", {"fact": "LegacyApp is maintenance-only, no new features"})
 
     ctx = MemoryContext(RulebookRepo(conn), StyleRepo(conn), vs, embedder, topk=3)
-    block = ctx.build("draft a ticket for a teacherzone bug")
+    block = ctx.build("draft a ticket for a legacyapp bug")
 
-    assert "TeacherZone is maintenance-only" in block
+    assert "LegacyApp is maintenance-only" in block
+
+
+class FakeOwa:
+    def __init__(self, fail=False):
+        self.sent: list[tuple] = []
+        self._fail = fail
+
+    def send_mail(self, to, subject, body, cc=None, bcc=None):
+        if self._fail:
+            raise RuntimeError("smtp down")
+        self.sent.append((to, subject, body, cc, bcc))
+
+
+def test_send_email_tool_sends_and_logs(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    ep = EpisodicRepo(conn)
+    owa = FakeOwa()
+    svc = AnswerService(
+        ep,
+        VectorStore(conn),
+        FakeEmbedder(),
+        FakeToolCallLLM(),
+        topk=3,
+        owa=owa,
+    )
+
+    result = svc._dispatch(
+        "send_email",
+        {"to": ["jane@example.com"], "subject": "Hi", "body": "Quick update."},
+    )
+
+    assert result["sent"] is True
+    assert owa.sent == [(["jane@example.com"], "Hi", "Quick update.", None, None)]
+    recent = ep.recent(limit=5)
+    assert any("jane@example.com" in e.content for e in recent)
+
+
+def test_send_email_tool_passes_cc_and_bcc_and_logs_them(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    ep = EpisodicRepo(conn)
+    owa = FakeOwa()
+    svc = AnswerService(
+        ep,
+        VectorStore(conn),
+        FakeEmbedder(),
+        FakeToolCallLLM(),
+        topk=3,
+        owa=owa,
+    )
+
+    result = svc._dispatch(
+        "send_email",
+        {
+            "to": ["jane@example.com"],
+            "subject": "Hi",
+            "body": "Quick update.",
+            "cc": ["manager@example.com"],
+            "bcc": ["archive@example.com"],
+        },
+    )
+
+    assert result["sent"] is True
+    assert owa.sent == [
+        (
+            ["jane@example.com"],
+            "Hi",
+            "Quick update.",
+            ["manager@example.com"],
+            ["archive@example.com"],
+        )
+    ]
+    recent = ep.recent(limit=5)
+    assert any(
+        "manager@example.com" in e.content and "archive@example.com" in e.content for e in recent
+    )
+
+
+def test_send_email_tool_without_owa_configured(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        VectorStore(conn),
+        FakeEmbedder(),
+        FakeToolCallLLM(),
+        topk=3,
+    )
+
+    result = svc._dispatch(
+        "send_email", {"to": ["jane@example.com"], "subject": "Hi", "body": "Body"}
+    )
+
+    assert result["sent"] is False
+    assert "error" in result
+
+
+def test_send_email_tool_requires_all_fields(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        VectorStore(conn),
+        FakeEmbedder(),
+        FakeToolCallLLM(),
+        topk=3,
+        owa=FakeOwa(),
+    )
+
+    result = svc._dispatch("send_email", {"to": [], "subject": "", "body": ""})
+
+    assert result["sent"] is False
+    assert "error" in result
+
+
+def test_send_email_tool_reports_failure_without_raising(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        VectorStore(conn),
+        FakeEmbedder(),
+        FakeToolCallLLM(),
+        topk=3,
+        owa=FakeOwa(fail=True),
+    )
+
+    result = svc._dispatch(
+        "send_email", {"to": ["jane@example.com"], "subject": "Hi", "body": "Body"}
+    )
+
+    assert result["sent"] is False
+    assert "error" in result
+
+
+def test_send_email_tool_available_without_jira(tmp_path):
+    captured = {}
+
+    class RecordingLLM:
+        def run(self, system, messages, tools, dispatch, max_iter=5):
+            captured["tools"] = tools
+            return "reply"
+
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        VectorStore(conn),
+        FakeEmbedder(),
+        RecordingLLM(),
+        topk=3,
+        owa=FakeOwa(),
+    )
+
+    svc.answer("draft an email")
+
+    names = {t["function"]["name"] for t in captured["tools"]}
+    assert "send_email" in names
+
+
+def test_reset_history_clears_conversation_context(tmp_path):
+    received_messages: list[list] = []
+
+    class RecordingLLM:
+        def run(self, system, messages, tools, dispatch, max_iter=5):
+            received_messages.append(list(messages))
+            return "reply"
+
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        VectorStore(conn),
+        FakeEmbedder(),
+        RecordingLLM(),
+        topk=3,
+    )
+
+    svc.answer("first question")
+    svc.reset_history()
+    svc.answer("second question")
+
+    last_messages = received_messages[-1]
+    contents = [m.get("content", "") for m in last_messages]
+    assert not any("first question" in c for c in contents)
 
 
 def test_history_retains_ten_turns(tmp_path):

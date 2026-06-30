@@ -133,3 +133,42 @@ def test_reply_all_posts_comment():
     OutlookRestClient(lambda: "Bearer t", http).reply_all("msg-1", "hello there")
     assert seen["url"].endswith("/me/messages/msg-1/replyall")
     assert "hello there" in seen["body"] and "Comment" in seen["body"]
+
+
+def test_send_mail_posts_message():
+    seen = {}
+
+    def handler(req):
+        seen["url"] = str(req.url)
+        seen["body"] = req.read().decode()
+        return httpx.Response(202)
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    OutlookRestClient(lambda: "Bearer t", http).send_mail(
+        ["jane@example.com"], "Subject line", "Body text"
+    )
+    assert seen["url"].endswith("/me/sendmail")
+    assert "jane@example.com" in seen["body"]
+    assert "Subject line" in seen["body"]
+    assert "Body text" in seen["body"]
+    assert "CcRecipients" not in seen["body"]
+    assert "BccRecipients" not in seen["body"]
+
+
+def test_send_mail_includes_cc_and_bcc_when_given():
+    seen = {}
+
+    def handler(req):
+        seen["body"] = req.read().decode()
+        return httpx.Response(202)
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    OutlookRestClient(lambda: "Bearer t", http).send_mail(
+        ["jane@example.com"],
+        "Subject line",
+        "Body text",
+        cc=["cc@example.com"],
+        bcc=["bcc@example.com"],
+    )
+    assert "cc@example.com" in seen["body"] and "CcRecipients" in seen["body"]
+    assert "bcc@example.com" in seen["body"] and "BccRecipients" in seen["body"]

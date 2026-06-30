@@ -21,7 +21,16 @@ _SYSTEM = (
     "rule when drafting tickets, you MUST call store_fact or add_rule first.\n"
     "- Never tell the owner something is saved, remembered, or noted unless the matching tool "
     "call returned stored: true. If the tool call fails, say so plainly instead of pretending "
-    "it worked."
+    "it worked.\n\n"
+    "Email rules:\n"
+    "- When drafting an email, write the draft as plain chat text first; don't call send_email "
+    "until the owner explicitly confirms.\n"
+    "- Resolve the recipient from what the owner stated or from earlier context in this "
+    "conversation. If it's not clear who to send to, ask, don't guess.\n"
+    "- Before sending, show the full To/Cc/Bcc/Subject/Body (omit Cc/Bcc if none) and wait for "
+    "an explicit 'send it' or 'yes, send'. Vague approval like 'looks good' or 'ok' is not "
+    "confirmation, ask explicitly instead.\n"
+    "- Never tell the owner an email was sent unless send_email returned sent: true."
 )
 
 _TOOLS = [
@@ -156,6 +165,40 @@ _TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_email",
+            "description": (
+                "Send an email. Only call this after the owner has explicitly confirmed the "
+                "To/Subject/Body you showed them ('send it', 'yes, send') — never on vague "
+                "approval like 'looks good' or 'ok'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Recipient email address(es)",
+                    },
+                    "subject": {"type": "string"},
+                    "body": {"type": "string"},
+                    "cc": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "CC email address(es), if any",
+                    },
+                    "bcc": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "BCC email address(es), if any",
+                    },
+                },
+                "required": ["to", "subject", "body"],
+            },
+        },
+    },
 ]
 
 _MAX_HISTORY = 10
@@ -173,6 +216,7 @@ class AnswerService:
         project_key: str = "",
         commands: list[tuple[str, str]] | None = None,
         rulebook_repo=None,
+        owa=None,
     ) -> None:
         self._episodic = episodic_repo
         self._vectors = vector_store
@@ -183,6 +227,7 @@ class AnswerService:
         self._project_key = project_key
         self._commands = commands or []
         self._rules = rulebook_repo
+        self._owa = owa
         self._history: list[tuple[str, str]] = []
         self._system = self._build_system_prompt()
 
@@ -273,6 +318,28 @@ class AnswerService:
             except Exception as exc:
                 return {"stored": False, "error": str(exc)}
 
+        if name == "send_email":
+            to = [addr.strip() for addr in args.get("to") or [] if addr.strip()]
+            cc = [addr.strip() for addr in args.get("cc") or [] if addr.strip()]
+            bcc = [addr.strip() for addr in args.get("bcc") or [] if addr.strip()]
+            subject = args.get("subject", "").strip()
+            body = args.get("body", "").strip()
+            if not self._owa:
+                return {"sent": False, "error": "mail sending not configured"}
+            if not to or not subject or not body:
+                return {"sent": False, "error": "to, subject, and body are all required"}
+            try:
+                self._owa.send_mail(to, subject, body, cc=cc or None, bcc=bcc or None)
+                log_line = f"To: {', '.join(to)}\nSubject: {subject}"
+                if cc:
+                    log_line += f"\nCc: {', '.join(cc)}"
+                if bcc:
+                    log_line += f"\nBcc: {', '.join(bcc)}"
+                self._episodic.add("sent_email", log_line)
+                return {"sent": True, "to": to, "cc": cc, "bcc": bcc, "subject": subject}
+            except Exception as exc:
+                return {"sent": False, "error": str(exc)}
+
         return {"error": f"Unknown tool: {name}"}
 
     def _format_jql_results(self, issues: list[dict]) -> dict:
@@ -303,6 +370,9 @@ class AnswerService:
             result["sprint"] = sprint_name
         return result
 
+    def reset_history(self) -> None:
+        self._history = []
+
     def answer(self, question: str) -> str:
         log.info("answer: question=%r", question[:120])
         history_messages: list[dict] = []
@@ -318,7 +388,13 @@ class AnswerService:
                 t
                 for t in _TOOLS
                 if t["function"]["name"]  # type: ignore[index]
-                in ("search_memory", "get_recent_events", "store_fact", "add_rule")
+                in (
+                    "search_memory",
+                    "get_recent_events",
+                    "store_fact",
+                    "add_rule",
+                    "send_email",
+                )
             ]
         )
 

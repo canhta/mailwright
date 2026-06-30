@@ -8,8 +8,6 @@ log = logging.getLogger(__name__)
 _SYSTEM = (
     "You manage long-term memory for an AI mail→Jira agent. "
     "After each pipeline outcome, decide whether there is a durable behavioral pattern worth storing. "
-    "Good insights: 'Auth-related emails from the teacherzone domain tend to be high-priority bugs', "
-    "'Feature requests about scheduling always need acceptance criteria clarified before creating a ticket'. "
     "BAD — never store: specific ticket keys, exact ticket summaries, sender email addresses, "
     "or any fact that will become stale when tickets are deleted or edited. "
     "Skip if this outcome is routine and reveals nothing new. "

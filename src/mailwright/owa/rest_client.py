@@ -104,6 +104,38 @@ class OutlookRestClient:
         )
         resp.raise_for_status()
 
+    def send_mail(
+        self,
+        to: list[str],
+        subject: str,
+        body: str,
+        cc: list[str] | None = None,
+        bcc: list[str] | None = None,
+    ) -> None:
+        def _recipients(addrs: list[str]) -> list[dict]:
+            return [{"EmailAddress": {"Address": addr}} for addr in addrs]
+
+        message: dict = {
+            "Subject": subject,
+            "Body": {"ContentType": "Text", "Content": body},
+            "ToRecipients": _recipients(to),
+        }
+        if cc:
+            message["CcRecipients"] = _recipients(cc)
+        if bcc:
+            message["BccRecipients"] = _recipients(bcc)
+
+        resp = self._http.post(
+            f"{self._base_url}/me/sendmail",
+            json={"Message": message, "SaveToSentItems": "true"},
+            headers={
+                "Authorization": self._token_provider(),
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+        )
+        resp.raise_for_status()
+
     def get_attachment(self, message_id: str, attachment_id: str) -> AttachmentContent:
         url = f"{self._base_url}/me/messages/{message_id}/attachments/{attachment_id}"
         resp = self._http.get(
