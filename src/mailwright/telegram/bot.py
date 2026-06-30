@@ -1,6 +1,9 @@
 import asyncio
 import contextlib
 import logging
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
 
 import httpx
 import uvicorn
@@ -43,8 +46,10 @@ from mailwright.pipeline.status_service import StatusReplyService
 from mailwright.pipeline.summary_service import SummaryService
 from mailwright.pipeline.uploader import AttachmentUploader
 from mailwright.poller.mail_poller import MailPoller
+from mailwright.poller.scheduling import humanize_seconds, parse_duration, should_poll_now
 from mailwright.repositories.approvals import ApprovalRepo
 from mailwright.repositories.episodic import EpisodicRepo
+from mailwright.repositories.poll_state import PollStateRepo
 from mailwright.repositories.processed_mails import ProcessedMailRepo
 from mailwright.repositories.rulebook import RulebookRepo
 from mailwright.repositories.status_events import StatusEventRepo
@@ -57,6 +62,11 @@ from mailwright.webhook.app import build_webhook_app
 
 log = logging.getLogger(__name__)
 
+# How often the scheduled job wakes up to *check* whether a poll is due, per
+# the persisted (and runtime-adjustable) poll_state interval. Not itself
+# user-configurable — /interval below this has no effect.
+_HEARTBEAT_SECONDS = 30
+
 
 def build_agent(settings: Settings) -> Application:
     conn = get_connection(settings.db_path)
@@ -64,6 +74,7 @@ def build_agent(settings: Settings) -> Application:
     processed = ProcessedMailRepo(conn)
     approvals = ApprovalRepo(conn)
     status_events = StatusEventRepo(conn)
+    poll_state = PollStateRepo(conn, settings.poll_interval_seconds)
 
     session = OwaSession(
         lambda: playwright_token_extractor(
@@ -120,6 +131,7 @@ def build_agent(settings: Settings) -> Application:
         settings.memory_topk,
         jira=jira,
         project_key=settings.jira_project_key,
+        commands=[(c.name, c.description) for c in _COMMANDS],
     )
     reflection_svc = ReflectionService(episodic, style, rulebook, draft_llm, lookback=50)
 
@@ -151,6 +163,7 @@ def build_agent(settings: Settings) -> Application:
         {
             "settings": settings,
             "poller": poller,
+            "poll_state": poll_state,
             "pipeline": pipeline,
             "approval_service": approval_service,
             "approvals": approvals,
@@ -168,11 +181,9 @@ def build_agent(settings: Settings) -> Application:
     )
     app.add_handler(CallbackQueryHandler(_on_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _on_text))
-    app.add_handler(CommandHandler("pending", _on_pending))
-    app.add_handler(CommandHandler("rules", _on_rules))
-    app.add_handler(CommandHandler("poll", _on_poll))
-    app.add_handler(CommandHandler("delete", _on_delete))
-    app.job_queue.run_repeating(_poll_job, interval=settings.poll_interval_seconds, first=5)
+    for cmd in _COMMANDS:
+        app.add_handler(CommandHandler(cmd.name, cmd.handler))
+    app.job_queue.run_repeating(_poll_job, interval=_HEARTBEAT_SECONDS, first=5)
     from datetime import time as dtime
 
     hh, mm = (int(x) for x in settings.summary_time.split(":"))
@@ -218,10 +229,12 @@ def _poll_failure_text(exc: Exception) -> str:
     return f"⚠️ Poll failed: {h(exc)}"
 
 
-async def _poll_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _run_poll_once(context: ContextTypes.DEFAULT_TYPE) -> None:
+    poll_state = context.bot_data["poll_state"]
     pipeline = context.bot_data["pipeline"]
     poller = context.bot_data["poller"]
     notifier = _notifier(context)
+    poll_state.mark_polled(time.time())
     log.info("poll_job: starting")
     try:
         new = await asyncio.get_event_loop().run_in_executor(None, poller.poll)
@@ -238,6 +251,13 @@ async def _poll_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         for effect in pipeline.process_message(message):
             await notifier.send(effect)
     log.info("poll_job: done")
+
+
+async def _poll_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    state = context.bot_data["poll_state"].get()
+    if not should_poll_now(state.interval_seconds, state.paused, state.last_poll_at, time.time()):
+        return
+    await _run_poll_once(context)
 
 
 async def _on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -331,8 +351,65 @@ async def _on_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 async def _on_poll(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Polling now...", parse_mode=ParseMode.HTML)
-    await _poll_job(context)
+    await _run_poll_once(context)
     await update.message.reply_text("Done.", parse_mode=ParseMode.HTML)
+
+
+async def _on_interval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "Usage: /interval 5m (also accepts e.g. 300, 45s, 2h)", parse_mode=ParseMode.HTML
+        )
+        return
+    try:
+        seconds = parse_duration(args[0])
+    except ValueError as exc:
+        await update.message.reply_text(h(exc), parse_mode=ParseMode.HTML)
+        return
+    if seconds < _HEARTBEAT_SECONDS:
+        await update.message.reply_text(
+            f"Minimum interval is {_HEARTBEAT_SECONDS}s.", parse_mode=ParseMode.HTML
+        )
+        return
+    context.bot_data["poll_state"].set_interval(seconds)
+    await update.message.reply_text(
+        f"Poll interval set to {humanize_seconds(seconds)}.", parse_mode=ParseMode.HTML
+    )
+
+
+async def _on_pause(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.bot_data["poll_state"].set_paused(True)
+    await update.message.reply_text(
+        "⏸ Automatic polling paused. /poll still works manually.", parse_mode=ParseMode.HTML
+    )
+
+
+async def _on_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.bot_data["poll_state"].set_paused(False)
+    await update.message.reply_text("▶️ Automatic polling resumed.", parse_mode=ParseMode.HTML)
+
+
+async def _on_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    state = context.bot_data["poll_state"].get()
+    status = "⏸ paused" if state.paused else "▶️ running"
+    if state.last_poll_at is None:
+        last = "never"
+    else:
+        last = f"{humanize_seconds(time.time() - state.last_poll_at)} ago"
+    await update.message.reply_text(
+        f"Status: {status}\n"
+        f"Interval: {humanize_seconds(state.interval_seconds)}\n"
+        f"Last poll: {last}",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+@dataclass
+class _Command:
+    name: str
+    description: str
+    handler: Callable[[Update, ContextTypes.DEFAULT_TYPE], object]
 
 
 async def _on_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -344,6 +421,18 @@ async def _on_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(
         "Pending approvals:\n" + "\n".join(lines), parse_mode=ParseMode.HTML
     )
+
+
+_COMMANDS = [
+    _Command("poll", "Manually trigger a mail poll right now", _on_poll),
+    _Command("pending", "Show mails waiting for your approval", _on_pending),
+    _Command("rules", "List active drafting rules", _on_rules),
+    _Command("delete", "Delete Jira tickets: /delete SU-123 SU-456", _on_delete),
+    _Command("interval", "Set poll interval: /interval 5m", _on_interval),
+    _Command("pause", "Pause automatic polling", _on_pause),
+    _Command("resume", "Resume automatic polling", _on_resume),
+    _Command("status", "Show poll interval, paused state, and last poll time", _on_status),
+]
 
 
 async def _reflect_job(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -372,14 +461,7 @@ async def run_agent(settings: Settings) -> None:
 
     async with app:
         await app.start()
-        await app.bot.set_my_commands(
-            [
-                ("poll", "Manually trigger a mail poll right now"),
-                ("pending", "Show mails waiting for your approval"),
-                ("rules", "List active drafting rules"),
-                ("delete", "Delete Jira tickets: /delete SU-123 SU-456"),
-            ]
-        )
+        await app.bot.set_my_commands([(c.name, c.description) for c in _COMMANDS])
         await app.updater.start_polling()
         await server.serve()
         await app.updater.stop()

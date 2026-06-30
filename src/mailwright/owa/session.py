@@ -75,8 +75,9 @@ def _launch_browser(p, channel_preference=("chrome", "msedge", None)):
     last: Exception | None = None
     for channel in channel_preference:
         try:
-            kwargs = {"channel": channel} if channel else {}
-            return p.chromium.launch(headless=True, **kwargs)
+            if channel:
+                return p.chromium.launch(headless=True, channel=channel)
+            return p.chromium.launch(headless=True)
         except Exception as e:  # noqa: BLE001
             last = e
     raise last  # type: ignore[misc]
@@ -93,8 +94,10 @@ def interactive_login(owa_url: str = OWA_URL) -> dict:
         browser = None
         for channel in ("chrome", "msedge", None):
             try:
-                kwargs = {"channel": channel} if channel else {}
-                browser = p.chromium.launch(headless=False, **kwargs)
+                if channel:
+                    browser = p.chromium.launch(headless=False, channel=channel)
+                else:
+                    browser = p.chromium.launch(headless=False)
                 break
             except Exception as e:  # noqa: BLE001
                 last = e
@@ -109,7 +112,7 @@ def interactive_login(owa_url: str = OWA_URL) -> dict:
         )
         state = ctx.storage_state()
         browser.close()
-    return state  # type: ignore[no-any-return]
+    return dict(state)
 
 
 def playwright_token_extractor(state: dict, owa_url: str = OWA_URL, settle_ms: int = 12_000) -> str:

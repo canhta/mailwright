@@ -25,7 +25,9 @@ _TOOLS = [
             "name": "search_jira_jql",
             "description": (
                 "Search Jira with a JQL query. Use for sprint overviews, project-level queries, "
-                "filtering by status/assignee/type/label. Returns a list of matching issues."
+                "filtering by status/assignee/type/label, or 'tickets created/updated recently' "
+                '(e.g. jql="created >= -2h ORDER BY created DESC" — episodic memory does not '
+                "store ticket keys, this is the way to find them). Returns matching issues."
             ),
             "parameters": {
                 "type": "object",
@@ -47,6 +49,24 @@ _TOOLS = [
             "description": (
                 "Fetch a single Jira issue by key (e.g. SU-1234). "
                 "Returns summary, status, type, priority, assignee, and description."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "Jira issue key, e.g. SU-1234"},
+                },
+                "required": ["key"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_jira_issue",
+            "description": (
+                "Permanently delete a Jira issue by key. Irreversible. Only call this after the "
+                "user has explicitly confirmed the exact issue key; call once per key to delete "
+                "more than one issue."
             ),
             "parameters": {
                 "type": "object",
@@ -99,6 +119,7 @@ class AnswerService:
         topk: int,
         jira=None,
         project_key: str = "",
+        commands: list[tuple[str, str]] | None = None,
     ) -> None:
         self._episodic = episodic_repo
         self._vectors = vector_store
@@ -107,7 +128,19 @@ class AnswerService:
         self._topk = topk
         self._jira = jira
         self._project_key = project_key
+        self._commands = commands or []
         self._history: list[tuple[str, str]] = []
+        self._system = self._build_system_prompt()
+
+    def _build_system_prompt(self) -> str:
+        if not self._commands:
+            return _SYSTEM
+        cmd_lines = "\n".join(f"/{name}: {desc}" for name, desc in self._commands)
+        return (
+            f"{_SYSTEM}\n\n"
+            "Available bot commands (the user can run these directly; tell them to if there's "
+            "no matching tool, instead of guessing what the bot can or can't do):\n" + cmd_lines
+        )
 
     def _dispatch(self, name: str, args: dict) -> object:
         log.info("answer: tool=%s args=%s", name, args)
@@ -127,22 +160,35 @@ class AnswerService:
         if name == "get_jira_issue":
             if not self._jira:
                 return {"error": "Jira not configured"}
+            key = args["key"].upper().strip()
             try:
-                issue = self._jira.get_issue(args["key"])
+                issue = self._jira.get_issue(key)
                 f = issue.get("fields", {})
                 desc = adf_to_text(f.get("description"))
                 return {
-                    "key": args["key"],
+                    "key": key,
                     "summary": f.get("summary", ""),
                     "status": (f.get("status") or {}).get("name", ""),
                     "type": (f.get("issuetype") or {}).get("name", ""),
                     "priority": (f.get("priority") or {}).get("name", ""),
                     "assignee": (f.get("assignee") or {}).get("displayName", "unassigned"),
-                    "url": self._jira.issue_url(args["key"]),
+                    "url": self._jira.issue_url(key),
                     "description": desc,
                 }
             except Exception as exc:
-                return {"error": f"{args['key']} not found: {exc}"}
+                return {"error": f"{key} not found: {exc}"}
+
+        if name == "delete_jira_issue":
+            if not self._jira:
+                return {"error": "Jira not configured"}
+            key = args["key"].upper().strip()
+            try:
+                self._jira.delete_issue(key)
+                self._episodic.delete_by_ref(key)
+                self._vectors.delete_by_ref(key)
+                return {"key": key, "deleted": True}
+            except Exception as exc:
+                return {"key": key, "deleted": False, "error": str(exc)}
 
         if name == "search_memory":
             hits = self._episodic.search(args.get("query", ""), limit=self._topk)
@@ -201,7 +247,7 @@ class AnswerService:
             ]
         )
 
-        reply: str = self._llm.run(_SYSTEM, history_messages, tools, self._dispatch)
+        reply: str = self._llm.run(self._system, history_messages, tools, self._dispatch)
         self._history.append((question, reply))
         log.debug("answer: q=%r → %d chars", question[:60], len(reply))
         return reply
