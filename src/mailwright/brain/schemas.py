@@ -30,6 +30,17 @@ class ReadDecision(BaseModel):
     reason: str
 
 
+class TriageDecision(BaseModel):
+    action: Literal["create", "queue_approval", "ignore", "skip_duplicate"]
+    reason: str
+    is_urgent: bool
+
+
+class MemoryDecision(BaseModel):
+    action: Literal["write", "skip"]
+    insight: str  # empty string when action == "skip"
+
+
 class Reflection(BaseModel):
     style_profile: str
     proposed_rules: list[str]

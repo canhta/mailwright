@@ -59,3 +59,18 @@ class EpisodicRepo:
             "SELECT id, ts, type, ref, content FROM episodic_log ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
         return [EpisodicEntry(r["id"], r["ts"], r["type"], r["ref"], r["content"]) for r in rows]
+
+    def delete_by_ref(self, ref: str) -> int:
+        ids = [
+            r[0]
+            for r in self.conn.execute(
+                "SELECT id FROM episodic_log WHERE ref = ?", (ref,)
+            ).fetchall()
+        ]
+        if not ids:
+            return 0
+        for rid in ids:
+            self.conn.execute("DELETE FROM episodic_fts WHERE rowid = ?", (rid,))
+        self.conn.execute(f"DELETE FROM episodic_log WHERE id IN ({','.join('?' * len(ids))})", ids)
+        self.conn.commit()
+        return len(ids)

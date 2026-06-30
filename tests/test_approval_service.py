@@ -95,46 +95,38 @@ def test_decide_on_non_pending_is_noop(tmp_path):
     assert ts.created == []
 
 
-class FakeFeedback:
+class FakeMemoryManager:
     def __init__(self):
-        self.created = []
-        self.rejected = []
-        self.edited = []
+        self.outcomes: list[tuple[str, str]] = []
 
-    def record_created(self, ctx, draft, key):
-        self.created.append(key)
-
-    def record_reject(self, ctx, reason):
-        self.rejected.append(reason)
-
-    def record_edit(self, ctx, old, new):
-        self.edited.append((old, new))
+    def on_outcome(self, event_type, email_summary, draft, result):
+        self.outcomes.append((event_type, str(result)))
 
 
-def test_feedback_called_on_approve_edit_reject(tmp_path):
+def test_memory_called_on_approve_edit_reject(tmp_path):
     conn = get_connection(str(tmp_path / "app.db"))
     init_db(conn)
     repo = ApprovalRepo(conn)
     ts = FakeTicketService()
     up = FakeUploader()
-    fb = FakeFeedback()
-    svc = ApprovalService(repo, ts, up, [111], feedback=fb)
+    mgr = FakeMemoryManager()
+    svc = ApprovalService(repo, ts, up, [111], feedback=mgr)
 
-    # approve → record_created
+    # approve → on_outcome("approved", ...)
     aid = repo.add("ticket", _payload())
     svc.decide(aid, "approve", 111)
-    assert fb.created == ["PROD-9"]
+    assert any(ev == "approved" and "PROD-9" in res for ev, res in mgr.outcomes)
 
-    # reject → record_reject
+    # reject → on_outcome("rejected", ...)
     aid2 = repo.add("ticket", _payload())
     svc.decide(aid2, "reject", 111)
-    assert fb.rejected
+    assert any(ev == "rejected" for ev, _ in mgr.outcomes)
 
-    # edit → record_edit
+    # edit → on_outcome("edited", ...)
     aid3 = repo.add("ticket", _payload())
     svc.decide(aid3, "edit", 111)
     svc.apply_edit(aid3, "new desc", 111)
-    assert fb.edited == [("d", "new desc")]
+    assert any(ev == "edited" for ev, _ in mgr.outcomes)
 
 
 def test_unknown_action_returns_not_edit_card(tmp_path):

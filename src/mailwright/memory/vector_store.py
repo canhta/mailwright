@@ -17,6 +17,11 @@ class VectorStore:
         assert cur.lastrowid is not None
         return cur.lastrowid
 
+    def delete_by_ref(self, ref: str) -> int:
+        cur = self.conn.execute("DELETE FROM embeddings WHERE ref = ?", (ref,))
+        self.conn.commit()
+        return cur.rowcount
+
     def search(self, kind: str, query_vector: list[float], k: int) -> list[tuple[str, float]]:
         q = np.asarray(query_vector, dtype=np.float32)
         qn = np.linalg.norm(q) or 1.0

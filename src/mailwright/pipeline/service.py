@@ -2,10 +2,23 @@ import logging
 from dataclasses import dataclass
 
 from mailwright.brain.key_detector import find_jira_keys
+from mailwright.brain.schemas import TriageDecision
 from mailwright.models import Message
 from mailwright.telegram.card import render_approval_card
 
 log = logging.getLogger(__name__)
+
+_TRIAGE_SYSTEM = (
+    "You are the action router for a mail→Jira pipeline. "
+    "Given the classification result, drafted ticket, drafter confidence, and any duplicate tickets found, "
+    "decide the next action:\n"
+    "- 'create': auto-create the Jira ticket (high confidence, clear issue type, no blocking duplicates)\n"
+    "- 'queue_approval': send to the owner for review "
+    "(low confidence, unclear type, or potential duplicates that need human judgement)\n"
+    "- 'ignore': the classifier was wrong — this is not actually a ticket-worthy request\n"
+    "- 'skip_duplicate': clearly a duplicate of an existing ticket — skip silently\n"
+    "Also set is_urgent=true if the mail signals an outage, escalation, or angry tone."
+)
 
 
 @dataclass
@@ -29,6 +42,7 @@ class PipelineService:
         replier=None,
         feedback=None,
         memory_context=None,
+        triage_llm=None,
     ) -> None:
         self._classifier = classifier
         self._loader = attachment_loader
@@ -41,6 +55,35 @@ class PipelineService:
         self._replier = replier
         self._feedback = feedback
         self._memory = memory_context
+        self._triage_llm = triage_llm
+
+    def _triage(self, c, outcome, duplicates) -> TriageDecision:
+        if self._triage_llm:
+            draft = outcome.draft
+            dup_list = [f"{d.key}: {d.summary}" for d in duplicates] or ["none"]
+            ctx = (
+                f"Classification: is_request={c.is_request} needs_ticket={c.needs_ticket} "
+                f"issue_type={c.issue_type} priority={c.priority} confidence={c.confidence:.2f}\n"
+                f"Draft summary: {draft.summary!r}\n"
+                f"Draft type: {draft.issue_type}\n"
+                f"Drafter confidence: {outcome.confidence:.2f} (threshold={self._threshold})\n"
+                f"Issue type clear: {outcome.issue_type_clear}\n"
+                f"Duplicates found: {', '.join(dup_list)}"
+            )
+            try:
+                return self._triage_llm.parse(_TRIAGE_SYSTEM, ctx, TriageDecision)  # type: ignore[no-any-return]
+            except Exception:
+                log.warning("triage_llm failed, falling back to rule-based", exc_info=True)
+
+        # Rule-based fallback (original logic)
+        confident = (
+            outcome.confidence >= self._threshold and outcome.issue_type_clear and not duplicates
+        )
+        return TriageDecision(
+            action="create" if confident else "queue_approval",
+            reason="rule-based",
+            is_urgent=c.is_urgent,
+        )
 
     def process_message(self, message: Message) -> list[OutgoingMessage]:
         mid = message.internet_message_id
@@ -88,18 +131,21 @@ class PipelineService:
                 "pipeline: %d duplicate(s) found: %s", len(duplicates), [d.key for d in duplicates]
             )
 
-        confident = (
-            outcome.confidence >= self._threshold and outcome.issue_type_clear and not duplicates
-        )
+        decision = self._triage(c, outcome, duplicates)
         log.info(
-            "pipeline: confident=%s (threshold=%.2f, issue_type_clear=%s, duplicates=%d)",
-            confident,
-            self._threshold,
-            outcome.issue_type_clear,
-            len(duplicates),
+            "pipeline: triage → action=%s reason=%r is_urgent=%s",
+            decision.action,
+            decision.reason,
+            decision.is_urgent,
         )
 
-        if confident:
+        email_summary = f"From: {message.sender}\nSubject: {message.subject}"
+
+        if decision.action in ("ignore", "skip_duplicate"):
+            self._processed.set_action(mid, decision.action)
+            return []
+
+        if decision.action == "create":
             res = self._tickets.create_or_comment(message.conversation_id, mid, draft)
             log.info(
                 "pipeline: ticket %s %s → %s",
@@ -112,14 +158,12 @@ class PipelineService:
             if self._replier:
                 self._replier.reply_link(message.conversation_id, message.id, res.key, res.url)
             if self._feedback:
-                self._feedback.record_created(
-                    f"From: {message.sender}\nSubject: {message.subject}\n\n{message.body}",
-                    draft,
-                    res.key,
-                )
+                self._feedback.on_outcome("created", email_summary, draft, res.key)
             verb = "Commented on" if res.commented else "Auto-created"
-            effects = [OutgoingMessage(f"✅ {verb} {res.key}: {res.url}\n{draft.summary}")]
-        else:
+            effects: list[OutgoingMessage] = [
+                OutgoingMessage(f"✅ {verb} {res.key}: {res.url}\n{draft.summary}")
+            ]
+        else:  # queue_approval
             payload = {
                 "draft": {
                     "summary": draft.summary,
@@ -141,7 +185,7 @@ class PipelineService:
             text, buttons = render_approval_card(approval_id, draft, outcome.confidence, duplicates)
             effects = [OutgoingMessage(text, buttons, approval_id)]
 
-        if c.is_urgent:
+        if decision.is_urgent:
             log.warning("pipeline: URGENT mail from %s — %r", message.sender, message.subject)
             esc = OutgoingMessage(text=f"🚨 Urgent mail from {message.sender}: {message.subject}")
             return [esc, *effects]

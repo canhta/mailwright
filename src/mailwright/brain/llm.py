@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from typing import Any, Protocol, TypeVar, cast
 
 from pydantic import BaseModel
@@ -87,6 +88,61 @@ class OpenAITextLLM:
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
         )
         return resp.choices[0].message.content or ""
+
+
+class ToolCallLLM:
+    """Stateless ReAct loop: LLM calls registered tools until it returns plain text."""
+
+    def __init__(self, client, model: str) -> None:
+        self._client = client
+        self._model = model
+
+    def run(
+        self,
+        system: str,
+        messages: list[dict],
+        tools: list[dict],
+        dispatch: Callable[[str, dict], Any],
+        max_iter: int = 5,
+    ) -> str:
+        msgs: list[dict] = [{"role": "system", "content": system}, *messages]
+        for _ in range(max_iter):
+            resp = self._client.chat.completions.create(
+                model=self._model, messages=msgs, tools=tools, tool_choice="auto"
+            )
+            msg = resp.choices[0].message
+            if not msg.tool_calls:
+                return msg.content or ""
+            msgs.append(
+                {
+                    "role": "assistant",
+                    "content": msg.content,
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            },
+                        }
+                        for tc in msg.tool_calls
+                    ],
+                }
+            )
+            for tc in msg.tool_calls:
+                try:
+                    result = dispatch(tc.function.name, json.loads(tc.function.arguments))
+                except Exception as exc:
+                    result = {"error": str(exc)}
+                msgs.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": json.dumps(result) if not isinstance(result, str) else result,
+                    }
+                )
+        return ""
 
 
 def build_structured_llm(client, model: str, mode: str) -> StructuredLLM:

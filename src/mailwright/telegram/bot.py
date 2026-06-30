@@ -18,7 +18,7 @@ from mailwright.brain.attachment_gate import AttachmentGate
 from mailwright.brain.attachment_loader import AttachmentLoader
 from mailwright.brain.classifier import MailClassifier
 from mailwright.brain.drafter import TicketDrafter
-from mailwright.brain.llm import OpenAITextLLM, build_structured_llm
+from mailwright.brain.llm import ToolCallLLM, build_structured_llm
 from mailwright.config import Settings
 from mailwright.db.connection import get_connection
 from mailwright.db.schema import init_db
@@ -26,7 +26,7 @@ from mailwright.jira.client import JiraClient
 from mailwright.jira.ticket_service import TicketService
 from mailwright.memory.context import MemoryContext
 from mailwright.memory.embedder import OpenAIEmbedder
-from mailwright.memory.feedback import FeedbackRecorder
+from mailwright.memory.manager import MemoryManager
 from mailwright.memory.vector_store import VectorStore
 from mailwright.owa.rest_client import OutlookRestClient
 from mailwright.owa.session import OwaSession, playwright_token_extractor
@@ -73,6 +73,7 @@ def build_agent(settings: Settings) -> Application:
         oa, settings.llm_classify_model, settings.llm_structured_mode
     )
     draft_llm = build_structured_llm(oa, settings.llm_draft_model, settings.llm_structured_mode)
+    triage_llm = build_structured_llm(oa, settings.llm_classify_model, settings.llm_structured_mode)
     classifier = MailClassifier(classify_llm)
     drafter = TicketDrafter(draft_llm)
     gate = AttachmentGate(classify_llm)
@@ -101,13 +102,13 @@ def build_agent(settings: Settings) -> Application:
     rulebook = RulebookRepo(conn)
     style = StyleRepo(conn)
     memory_ctx = MemoryContext(rulebook, style, vector_store, embedder, settings.memory_topk)
-    feedback = FeedbackRecorder(embedder, vector_store, episodic)
-    text_llm = OpenAITextLLM(oa, settings.llm_draft_model)
+    memory_mgr = MemoryManager(episodic, vector_store, embedder, classify_llm)
+    tool_llm = ToolCallLLM(oa, settings.llm_draft_model)
     answer_svc = AnswerService(
         episodic,
         vector_store,
         embedder,
-        text_llm,
+        tool_llm,
         settings.memory_topk,
         jira=jira,
         project_key=settings.jira_project_key,
@@ -124,8 +125,9 @@ def build_agent(settings: Settings) -> Application:
         processed,
         settings.confidence_threshold,
         replier=replier,
-        feedback=feedback,
+        feedback=memory_mgr,
         memory_context=memory_ctx,
+        triage_llm=triage_llm,
     )
     approval_service = ApprovalService(
         approvals,
@@ -133,7 +135,7 @@ def build_agent(settings: Settings) -> Application:
         uploader,
         settings.telegram_allowlist,
         replier=replier,
-        feedback=feedback,
+        feedback=memory_mgr,
     )
 
     app = Application.builder().token(settings.telegram_bot_token).build()
@@ -148,6 +150,8 @@ def build_agent(settings: Settings) -> Application:
             "status_events": status_events,
             "owa": owa,
             "jira": jira,
+            "episodic": episodic,
+            "vector_store": vector_store,
             "thread_repo": thread_repo,
             "answer_service": answer_svc,
             "reflection": reflection_svc,
@@ -266,12 +270,16 @@ async def _on_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text("Usage: /delete SU-123 SU-456")
         return
     jira_client = context.bot_data["jira"]
+    episodic = context.bot_data["episodic"]
+    vector_store = context.bot_data["vector_store"]
     lines = []
     for key in keys:
         key = key.upper().strip()
         try:
             jira_client.delete_issue(key)
-            log.info("delete: removed %s", key)
+            ep_removed = episodic.delete_by_ref(key)
+            vs_removed = vector_store.delete_by_ref(key)
+            log.info("delete: removed %s (episodic=%d, vectors=%d)", key, ep_removed, vs_removed)
             lines.append(f"🗑 Deleted {key}")
         except Exception as exc:
             log.warning("delete: failed to remove %s — %s", key, exc)

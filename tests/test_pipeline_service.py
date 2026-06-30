@@ -223,24 +223,18 @@ def test_pipeline_passes_memory_context_to_drafter(tmp_path):
     assert mem.queries
 
 
-class FakeFeedback:
+class FakeMemoryManager:
     def __init__(self):
-        self.created = []
+        self.outcomes: list[tuple[str, str]] = []
 
-    def record_created(self, ctx, draft, key):
-        self.created.append(key)
-
-    def record_reject(self, ctx, reason):
-        pass
-
-    def record_edit(self, ctx, old, new):
-        pass
+    def on_outcome(self, event_type, email_summary, draft, result):
+        self.outcomes.append((event_type, result))
 
 
-def test_pipeline_records_feedback_on_auto_create(tmp_path):
+def test_pipeline_records_memory_on_auto_create(tmp_path):
     ts = FakeTicketService(dups=[])
     up = FakeUploader()
-    fb = FakeFeedback()
+    mgr = FakeMemoryManager()
     conn = get_connection(str(tmp_path / "app.db"))
     init_db(conn)
     proc = ProcessedMailRepo(conn)
@@ -255,10 +249,10 @@ def test_pipeline_records_feedback_on_auto_create(tmp_path):
         appr,
         proc,
         0.8,
-        feedback=fb,
+        feedback=mgr,
     )
     svc.process_message(_msg())
-    assert fb.created == ["PROD-9"]
+    assert any(ev == "created" and res == "PROD-9" for ev, res in mgr.outcomes)
 
 
 def test_urgent_mail_emits_escalation_notice(tmp_path):

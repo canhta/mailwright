@@ -38,7 +38,12 @@ class ApprovalService:
             labels=d.get("labels"),
         )
 
-    def _create(self, payload: dict) -> str:
+    def _email_summary(self, payload: dict) -> str:
+        sender = payload.get("sender", "")
+        subject = payload.get("subject", "")
+        return f"From: {sender}\nSubject: {subject}"
+
+    def _create(self, payload: dict) -> tuple[str, str]:
         draft = self._draft_from(payload)
         owa_message_id = payload.get("owa_message_id")
         res = self._tickets.create_or_comment(
@@ -47,11 +52,7 @@ class ApprovalService:
         self._uploader.upload_all(owa_message_id, payload.get("has_attachments", False), res.key)
         if self._replier:
             self._replier.reply_link(payload["conversation_id"], owa_message_id, res.key, res.url)
-        if self._feedback:
-            sender = payload.get("sender", "")
-            subject = payload.get("subject", "")
-            self._feedback.record_created(f"From: {sender}\nSubject: {subject}", draft, res.key)
-        return f"✅ Created {res.key}: {res.url}"
+        return res.key, f"✅ Created {res.key}: {res.url}"
 
     def decide(self, approval_id: int, action: str, user_id: int) -> DecisionOutcome:
         if not is_authorized(user_id, self._allowlist):
@@ -61,14 +62,28 @@ class ApprovalService:
             return DecisionOutcome(True, "This request is no longer pending.", False)
 
         if action == "approve":
-            text = self._create(rec.payload)
+            ticket_key, text = self._create(rec.payload)
             self._repo.set_status(approval_id, "approved")
+            if self._feedback:
+                self._feedback.on_outcome(
+                    "approved",
+                    self._email_summary(rec.payload),
+                    self._draft_from(rec.payload),
+                    ticket_key,
+                )
             return DecisionOutcome(True, text, True)
+
         if action == "reject":
             self._repo.set_status(approval_id, "rejected")
             if self._feedback:
-                self._feedback.record_reject(rec.payload.get("subject", ""), "owner rejected draft")
+                self._feedback.on_outcome(
+                    "rejected",
+                    self._email_summary(rec.payload),
+                    self._draft_from(rec.payload),
+                    "rejected by owner",
+                )
             return DecisionOutcome(True, "❌ Rejected.", True)
+
         if action == "edit":
             self._repo.set_status(approval_id, "awaiting_edit")
             return DecisionOutcome(
@@ -85,12 +100,16 @@ class ApprovalService:
         rec = self._repo.get(approval_id)
         if rec is None or rec.status != "awaiting_edit":
             return DecisionOutcome(True, "Nothing awaiting edit.", False)
-        old_desc = rec.payload["draft"].get("description", "")
         payload = dict(rec.payload)
         payload["draft"] = {**payload["draft"], "description": new_description}
         self._repo.update_payload(approval_id, payload)
-        if self._feedback:
-            self._feedback.record_edit(payload.get("subject", ""), old_desc, new_description)
-        text = self._create(payload)
+        ticket_key, text = self._create(payload)
         self._repo.set_status(approval_id, "approved")
+        if self._feedback:
+            self._feedback.on_outcome(
+                "edited",
+                self._email_summary(payload),
+                self._draft_from(payload),
+                ticket_key,
+            )
         return DecisionOutcome(True, text, True)
