@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
 from mailwright.pipeline.service import OutgoingMessage
+from mailwright.telegram.formatting import h
 
 
 class NudgeService:
@@ -13,6 +14,6 @@ class NudgeService:
         stale = self._approvals.list_pending_older_than(cutoff)
         if not stale:
             return None
-        lines = [f"⏰ {len(stale)} approval(s) waiting > {self._stale_days} day(s):"]
-        lines += [f"  • #{a.id} {a.payload.get('draft', {}).get('summary', '?')}" for a in stale]
+        lines = [f"⏰ {len(stale)} approval(s) waiting more than {self._stale_days} day(s):"]
+        lines += [f"  • #{a.id} {h(a.payload.get('draft', {}).get('summary', '?'))}" for a in stale]
         return OutgoingMessage(text="\n".join(lines))

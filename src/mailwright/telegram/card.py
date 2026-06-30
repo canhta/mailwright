@@ -1,5 +1,6 @@
 from mailwright.jira.models import DuplicateCandidate, TicketDraft
 from mailwright.telegram.auth import encode_action
+from mailwright.telegram.formatting import h
 
 _MAX_DESC = 600
 
@@ -15,17 +16,17 @@ def render_approval_card(
         desc = desc[:_MAX_DESC] + "…"
     lines = [
         "🆕 New ticket proposal",
-        f"Summary: {draft.summary}",
-        f"Type: {draft.issue_type}   Priority: {draft.priority or '—'}",
-        f"Confidence: {confidence:.2f}",
+        f"<b>Summary:</b> {h(draft.summary)}",
+        f"<b>Type:</b> {h(draft.issue_type)}  <b>Priority:</b> {h(draft.priority or 'none')}",
+        f"<b>Confidence:</b> {confidence:.2f}",
         "",
-        desc,
+        h(desc),
     ]
     if duplicates:
         lines.append("")
-        lines.append("⚠️ Possible duplicate(s):")
+        lines.append("⚠️ Possible duplicates:")
         for d in duplicates:
-            lines.append(f"  • {d.key} [{d.status}] {d.summary}")
+            lines.append(f"  • {h(d.key)} [{h(d.status)}] {h(d.summary)}")
     text = "\n".join(lines)
     buttons = [
         ("✅ Approve", encode_action("approve", approval_id)),

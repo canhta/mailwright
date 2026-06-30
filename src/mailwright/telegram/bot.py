@@ -1,10 +1,12 @@
 import asyncio
+import contextlib
 import logging
 
 import httpx
 import uvicorn
 from openai import OpenAI
 from telegram import Update
+from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -48,6 +50,7 @@ from mailwright.repositories.status_events import StatusEventRepo
 from mailwright.repositories.style import StyleRepo
 from mailwright.repositories.thread_ticket_map import ThreadTicketRepo
 from mailwright.telegram.dispatch import handle_callback
+from mailwright.telegram.formatting import h, md_to_html
 from mailwright.telegram.notifier import TelegramNotifier
 from mailwright.webhook.app import build_webhook_app
 
@@ -211,7 +214,9 @@ async def _poll_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as exc:
         log.exception("poll_job: poll failed — %s", exc)
         await context.bot.send_message(
-            context.bot_data["settings"].telegram_chat_id, f"⚠️ Poll failed: {exc}"
+            context.bot_data["settings"].telegram_chat_id,
+            f"⚠️ Poll failed: {h(exc)}",
+            parse_mode=ParseMode.HTML,
         )
         return
     log.info("poll_job: %d new message(s) to process", len(new))
@@ -233,7 +238,7 @@ async def _on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     await query.answer()
     if outcome.edit_card:
-        await query.edit_message_text(outcome.text)
+        await query.edit_message_text(outcome.text, parse_mode=ParseMode.HTML)
     if action == "edit":
         context.user_data["awaiting_edit_id"] = approval_id
 
@@ -244,10 +249,30 @@ async def _on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         outcome = context.bot_data["approval_service"].apply_edit(
             approval_id, update.message.text, update.effective_user.id
         )
-        await update.message.reply_text(outcome.text)
+        await update.message.reply_text(outcome.text, parse_mode=ParseMode.HTML)
         return
-    answer = context.bot_data["answer_service"].answer(update.message.text)
-    await update.message.reply_text(answer)
+
+    chat_id = update.effective_chat.id
+
+    # Fire immediately so the indicator appears before the executor blocks.
+    await context.bot.send_chat_action(chat_id, ChatAction.TYPING)
+
+    async def _keep_typing() -> None:
+        while True:
+            await asyncio.sleep(4)
+            await context.bot.send_chat_action(chat_id, ChatAction.TYPING)
+
+    typing_task = asyncio.create_task(_keep_typing())
+    try:
+        answer = await asyncio.get_running_loop().run_in_executor(
+            None, context.bot_data["answer_service"].answer, update.message.text
+        )
+    finally:
+        typing_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await typing_task
+
+    await update.message.reply_text(md_to_html(answer), parse_mode=ParseMode.HTML)
 
 
 async def _on_rules(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -255,19 +280,22 @@ async def _on_rules(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     rb = context.bot_data["rulebook"]
     if args and args[0] == "approve" and len(args) > 1 and args[1].isdigit():
         rb.activate(int(args[1]))
-        await update.message.reply_text(f"Rule {args[1]} activated.")
+        await update.message.reply_text(f"Rule {args[1]} activated.", parse_mode=ParseMode.HTML)
         return
-    active = rb.render() or "(none)"
-    proposed = "\n".join(f"  #{r.id} {r.text}" for r in rb.list_proposed()) or "  (none)"
+    active_text = rb.render()
+    active_str = h(active_text) if active_text else "(none)"
+    proposed = rb.list_proposed()
+    proposed_str = "\n".join(f"  #{r.id} {h(r.text)}" for r in proposed) if proposed else "  (none)"
     await update.message.reply_text(
-        f"Active rules:\n{active}\n\nProposed (use /rules approve <id>):\n{proposed}"
+        f"Active rules:\n{active_str}\n\nProposed (use /rules approve ID):\n{proposed_str}",
+        parse_mode=ParseMode.HTML,
     )
 
 
 async def _on_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keys = context.args
     if not keys:
-        await update.message.reply_text("Usage: /delete SU-123 SU-456")
+        await update.message.reply_text("Usage: /delete SU-123 SU-456", parse_mode=ParseMode.HTML)
         return
     jira_client = context.bot_data["jira"]
     episodic = context.bot_data["episodic"]
@@ -280,26 +308,28 @@ async def _on_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             ep_removed = episodic.delete_by_ref(key)
             vs_removed = vector_store.delete_by_ref(key)
             log.info("delete: removed %s (episodic=%d, vectors=%d)", key, ep_removed, vs_removed)
-            lines.append(f"🗑 Deleted {key}")
+            lines.append(f"🗑 Deleted {h(key)}")
         except Exception as exc:
-            log.warning("delete: failed to remove %s — %s", key, exc)
-            lines.append(f"❌ {key}: {exc}")
-    await update.message.reply_text("\n".join(lines))
+            log.warning("delete: failed to remove %s: %s", key, exc)
+            lines.append(f"❌ {h(key)}: {h(exc)}")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
 async def _on_poll(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("⏳ Polling now...")
+    await update.message.reply_text("Polling now...", parse_mode=ParseMode.HTML)
     await _poll_job(context)
-    await update.message.reply_text("✅ Poll complete.")
+    await update.message.reply_text("Done.", parse_mode=ParseMode.HTML)
 
 
 async def _on_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     pending = context.bot_data["approvals"].list_pending()
     if not pending:
-        await update.message.reply_text("No pending approvals.")
+        await update.message.reply_text("No pending approvals.", parse_mode=ParseMode.HTML)
         return
-    lines = [f"#{r.id}: {r.payload.get('draft', {}).get('summary', '?')}" for r in pending]
-    await update.message.reply_text("Pending approvals:\n" + "\n".join(lines))
+    lines = [f"#{r.id}: {h(r.payload.get('draft', {}).get('summary', '?'))}" for r in pending]
+    await update.message.reply_text(
+        "Pending approvals:\n" + "\n".join(lines), parse_mode=ParseMode.HTML
+    )
 
 
 async def _reflect_job(context: ContextTypes.DEFAULT_TYPE) -> None:

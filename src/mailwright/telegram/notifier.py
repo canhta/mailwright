@@ -1,3 +1,5 @@
+from telegram.constants import ParseMode
+
 from mailwright.pipeline.service import OutgoingMessage
 from mailwright.telegram.markup import to_markup
 
@@ -10,7 +12,12 @@ class TelegramNotifier:
 
     async def send(self, message: OutgoingMessage) -> int:
         markup = to_markup(message.buttons) if message.buttons else None
-        sent = await self._bot.send_message(self._chat_id, message.text, reply_markup=markup)
+        sent = await self._bot.send_message(
+            self._chat_id,
+            message.text,
+            reply_markup=markup,
+            parse_mode=ParseMode.HTML,
+        )
         if message.approval_id is not None:
             self._approval_repo.set_tg_message_id(message.approval_id, sent.message_id)
         return int(sent.message_id)

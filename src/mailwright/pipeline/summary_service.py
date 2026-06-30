@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
 from mailwright.pipeline.service import OutgoingMessage
+from mailwright.telegram.formatting import h
 
 
 class SummaryService:
@@ -16,15 +17,17 @@ class SummaryService:
         pending = self._approvals.list_pending()
         events = self._status.list_since(since)
 
-        lines = [f"🌅 Daily summary — {now.strftime('%Y-%m-%d')}", ""]
+        lines = [f"🌅 Daily summary {now.strftime('%Y-%m-%d')}", ""]
         lines.append(f"Tickets created ({len(created)}):")
-        lines += [f"  • {m.ticket_key or '?'} — {m.subject or ''}" for m in created] or ["  none"]
+        lines += [f"  • {h(m.ticket_key or '?')}: {h(m.subject or '')}" for m in created] or [
+            "  none"
+        ]
         lines.append("")
         lines.append(f"Pending approvals ({len(pending)}):")
         lines += [
-            f"  • #{a.id} {a.payload.get('draft', {}).get('summary', '?')}" for a in pending
+            f"  • #{a.id} {h(a.payload.get('draft', {}).get('summary', '?'))}" for a in pending
         ] or ["  none"]
         lines.append("")
         lines.append(f"Status changes ({len(events)}):")
-        lines += [f"  • {e.ticket_key} → {e.status}" for e in events] or ["  none"]
+        lines += [f"  • {h(e.ticket_key)} → {h(e.status)}" for e in events] or ["  none"]
         return OutgoingMessage(text="\n".join(lines))

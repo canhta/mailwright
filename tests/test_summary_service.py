@@ -51,6 +51,21 @@ def test_build_summary_contains_sections():
     assert "PROD-3" in text and "Done" in text  # status change
 
 
+def test_summary_escapes_html_in_dynamic_content():
+    processed = FakeProcessed(
+        [
+            ProcessedMail(
+                message_id="x", subject="AT&T <issue>", ticket_key="PROD-7", action="created"
+            )
+        ]
+    )
+    svc = SummaryService(processed, FakeApprovals([]), FakeStatus([]), 24)
+    text = svc.build(datetime(2026, 6, 30, 8, 0, 0)).text
+    assert "AT&amp;T" in text
+    assert "&lt;issue&gt;" in text
+    assert "<issue>" not in text
+
+
 def test_empty_summary_says_none():
     svc = SummaryService(FakeProcessed([]), FakeApprovals([]), FakeStatus([]), 24)
     text = svc.build(datetime(2026, 6, 30, 8, 0, 0)).text
