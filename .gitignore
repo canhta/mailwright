@@ -5,3 +5,4 @@ data/
 .env
 .pytest_cache/
 mocks/email.md
+docs/superpowers/
