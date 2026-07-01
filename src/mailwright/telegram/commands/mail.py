@@ -9,7 +9,7 @@ from mailwright.telegram.commands.base import Action, Domain
 from mailwright.telegram.formatting import h
 from mailwright.telegram.handlers import HEARTBEAT_SECONDS, _run_poll_once
 
-_CONFIG_USAGE = (
+_CONFIG_USAGE = h(
     "Usage:\n"
     "/mail config reply_all <on|off>\n"
     "/mail config urgent_ping <on|off>\n"
@@ -87,7 +87,7 @@ async def _on_config_senders(
     cfg_repo = context.bot_data["runtime_config"]
     if not args:
         await update.message.reply_text(
-            "Usage: /mail config senders <list|add|remove> [entry]", parse_mode=ParseMode.HTML
+            h("Usage: /mail config senders <list|add|remove> [entry]"), parse_mode=ParseMode.HTML
         )
         return
     sub = args[0].lower()
@@ -100,7 +100,8 @@ async def _on_config_senders(
     if sub in ("add", "remove"):
         if len(args) < 2:
             await update.message.reply_text(
-                f"Usage: /mail config senders {sub} <email-or-domain>", parse_mode=ParseMode.HTML
+                h(f"Usage: /mail config senders {sub} <email-or-domain>"),
+                parse_mode=ParseMode.HTML,
             )
             return
         entry = args[1]
@@ -117,7 +118,7 @@ async def _on_config_senders(
             )
         return
     await update.message.reply_text(
-        "Usage: /mail config senders <list|add|remove> [entry]", parse_mode=ParseMode.HTML
+        h("Usage: /mail config senders <list|add|remove> [entry]"), parse_mode=ParseMode.HTML
     )
 
 
@@ -138,7 +139,7 @@ async def _on_config(update: Update, context: ContextTypes.DEFAULT_TYPE, args: l
         val = _parse_on_off(args[1]) if len(args) > 1 else None
         if val is None:
             await update.message.reply_text(
-                "Usage: /mail config reply_all <on|off>", parse_mode=ParseMode.HTML
+                h("Usage: /mail config reply_all <on|off>"), parse_mode=ParseMode.HTML
             )
             return
         cfg_repo.set_reply_all(val)
@@ -150,7 +151,7 @@ async def _on_config(update: Update, context: ContextTypes.DEFAULT_TYPE, args: l
         val = _parse_on_off(args[1]) if len(args) > 1 else None
         if val is None:
             await update.message.reply_text(
-                "Usage: /mail config urgent_ping <on|off>", parse_mode=ParseMode.HTML
+                h("Usage: /mail config urgent_ping <on|off>"), parse_mode=ParseMode.HTML
             )
             return
         cfg_repo.set_urgent_ping(val)

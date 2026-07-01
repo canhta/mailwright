@@ -28,4 +28,13 @@ def test_find_action_returns_none_when_missing():
 
 def test_usage_text_lists_all_action_names():
     text = usage_text(_domain())
-    assert text == "Usage: /mail <poll|pause>"
+    assert text == "Usage: /mail &lt;poll|pause&gt;"
+
+
+def test_usage_text_is_html_safe():
+    # Telegram's HTML parse mode raises BadRequest on a literal, unescaped
+    # "<...>" it can't recognize as a real tag — usage_text() must return
+    # text that's already safe to send with parse_mode=ParseMode.HTML.
+    text = usage_text(_domain())
+    assert "<" not in text
+    assert ">" not in text

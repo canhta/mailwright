@@ -6,6 +6,7 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from mailwright.telegram.auth import is_authorized
+from mailwright.telegram.formatting import h
 
 NOT_AUTHORIZED_TEXT = "🔒 Not authorized."
 
@@ -34,7 +35,7 @@ def find_action(domain: Domain, name: str) -> Action | None:
 
 def usage_text(domain: Domain) -> str:
     names = "|".join(a.name for a in domain.actions)
-    return f"Usage: /{domain.name} <{names}>"
+    return h(f"Usage: /{domain.name} <{names}>")
 
 
 def is_authorized_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
