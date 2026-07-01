@@ -59,8 +59,16 @@ ignore_missing_imports = true
 # Telegram update handlers: update.message is always set in message handlers
 # but typed as Message | None; suppressing union-attr for the bot wiring and
 # handler bodies. Also covers container.py's OpenAI(**kwargs) construction,
-# where mypy can't narrow the conditionally-built kwargs dict.
-module = ["mailwright.telegram.bot", "mailwright.telegram.handlers", "mailwright.container"]
+# where mypy can't narrow the conditionally-built kwargs dict. The
+# telegram.commands.* wildcard covers the per-command handler modules
+# (base, mail, jira, memory, chat, pending, __init__, ...), which have the
+# identical update.message-is-always-set pattern.
+module = [
+    "mailwright.telegram.bot",
+    "mailwright.telegram.handlers",
+    "mailwright.telegram.commands.*",
+    "mailwright.container",
+]
 disable_error_code = ["union-attr", "arg-type", "return-value", "index"]
 
 [[tool.mypy.overrides]]
