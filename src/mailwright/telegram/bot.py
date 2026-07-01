@@ -2,7 +2,6 @@ import uvicorn
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
-    CommandHandler,
     MessageHandler,
     filters,
 )
@@ -11,8 +10,8 @@ from mailwright.config import Settings
 from mailwright.container import build_container
 from mailwright.owa.state_store import write_state_file
 from mailwright.pipeline.status_service import StatusReplyService
+from mailwright.telegram.commands import agent_commands, bot_commands, register_handlers
 from mailwright.telegram.handlers import (
-    COMMANDS,
     HEARTBEAT_SECONDS,
     _nudge_job,
     _on_callback,
@@ -26,14 +25,14 @@ from mailwright.webhook.app import build_webhook_app
 
 
 def build_agent(settings: Settings) -> Application:
-    container = build_container(settings, commands=[(c.name, c.description) for c in COMMANDS])
+    container = build_container(settings, commands=agent_commands())
 
     app = Application.builder().token(settings.telegram_bot_token).build()
     app.bot_data.update(
         {
             "settings": container.settings,
             "poller": container.poller,
-            "poll_state": container.poll_state,
+            "runtime_config": container.runtime_config,
             "pipeline": container.pipeline,
             "approval_service": container.approval_service,
             "approvals": container.approvals,
@@ -52,8 +51,7 @@ def build_agent(settings: Settings) -> Application:
     )
     app.add_handler(CallbackQueryHandler(_on_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _on_text))
-    for cmd in COMMANDS:
-        app.add_handler(CommandHandler(cmd.name, cmd.handler))
+    register_handlers(app)
     app.job_queue.run_repeating(_poll_job, interval=HEARTBEAT_SECONDS, first=5)
     from datetime import time as dtime
 
@@ -86,7 +84,7 @@ async def run_agent(settings: Settings) -> None:
 
     async with app:
         await app.start()
-        await app.bot.set_my_commands([(c.name, c.description) for c in COMMANDS])
+        await app.bot.set_my_commands(bot_commands())
         await app.updater.start_polling()
         await server.serve()
         await app.updater.stop()
