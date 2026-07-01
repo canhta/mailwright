@@ -53,7 +53,8 @@ CLI: `python -m mailwright.cli <login|poll|triage|agent>`. `agent` is the real d
 Prefer extending an existing tool's params over adding a new one. Keep
 destructive/mutating actions in their own tool, never behind a flag on a read
 tool. Ground the system prompt in real capabilities (tools + `_COMMANDS`) so
-the LLM doesn't invent limitations.
+the LLM doesn't invent limitations. See `docs/TOOL_DESIGN.md` for the fuller
+checklist (risk-tiering, ID-based targeting, description boundaries, etc).
 
 ## Testing conventions
 
