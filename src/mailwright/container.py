@@ -27,9 +27,9 @@ from mailwright.pipeline.upload_service import AttachmentUploader
 from mailwright.poller.mail_poller import MailPoller
 from mailwright.repositories.approvals import ApprovalRepo
 from mailwright.repositories.episodic import EpisodicRepo
-from mailwright.repositories.poll_state import PollStateRepo
 from mailwright.repositories.processed_mails import ProcessedMailRepo
 from mailwright.repositories.rulebook import RulebookRepo
+from mailwright.repositories.runtime_config import RuntimeConfigRepo
 from mailwright.repositories.status_events import StatusEventRepo
 from mailwright.repositories.style import StyleRepo
 from mailwright.repositories.thread_ticket_map import ThreadTicketRepo
@@ -53,7 +53,7 @@ def build_owa_client(settings: Settings) -> OutlookRestClient:
 class AgentContainer:
     settings: Settings
     poller: MailPoller
-    poll_state: PollStateRepo
+    runtime_config: RuntimeConfigRepo
     pipeline: PipelineService
     approval_service: ApprovalService
     approvals: ApprovalRepo
@@ -76,10 +76,12 @@ def build_container(settings: Settings, commands: list[tuple[str, str]]) -> Agen
     processed = ProcessedMailRepo(conn)
     approvals = ApprovalRepo(conn)
     status_events = StatusEventRepo(conn)
-    poll_state = PollStateRepo(conn, settings.poll_interval_seconds)
+    runtime_config = RuntimeConfigRepo(
+        conn, settings.poll_interval_seconds, settings.sender_allowlist
+    )
 
     owa = build_owa_client(settings)
-    poller = MailPoller(owa, processed, settings)
+    poller = MailPoller(owa, processed, settings, runtime_config=runtime_config)
 
     llm_kwargs = {"api_key": settings.llm_api_key or "x"}
     if settings.llm_base_url:
@@ -149,6 +151,7 @@ def build_container(settings: Settings, commands: list[tuple[str, str]]) -> Agen
         feedback=memory_mgr,
         memory_context=memory_ctx,
         triage_llm=triage_llm,
+        runtime_config=runtime_config,
     )
     approval_service = ApprovalService(
         approvals,
@@ -158,12 +161,13 @@ def build_container(settings: Settings, commands: list[tuple[str, str]]) -> Agen
         auth_check=is_authorized,
         replier=replier,
         feedback=memory_mgr,
+        runtime_config=runtime_config,
     )
 
     return AgentContainer(
         settings=settings,
         poller=poller,
-        poll_state=poll_state,
+        runtime_config=runtime_config,
         pipeline=pipeline,
         approval_service=approval_service,
         approvals=approvals,
