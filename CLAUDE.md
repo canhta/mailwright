@@ -45,9 +45,12 @@ CLI: `python -m mailwright.cli <login|poll|triage|agent>`. `agent` is the real d
 - `config.py`'s comma-separated env lists (`sender_allowlist`, etc.) need
   `Annotated[list[str], NoDecode]`, or pydantic-settings tries to JSON-decode
   them and raises.
-- `COMMANDS` in `telegram/handlers.py` is the single source of truth for
-  Telegram commands (drives both handler registration and `set_my_commands`)
-  — register new commands there, not as separate calls.
+- `telegram/commands/{mail,jira,memory,chat,pending}.py` are the source of
+  truth for Telegram commands, one domain per module (`telegram/commands/base.py`
+  defines the shared `Action`/`Domain` dispatch + auth gate); `telegram/commands/__init__.py`
+  aggregates them into `bot_commands()` (BotFather menu) and `agent_commands()`
+  (free-text agent grounding) — add new actions to the matching domain file,
+  not as separate `CommandHandler` registrations in `bot.py`.
 - `TicketService.create_or_comment` keys off `conversation_id`: first mail in a
   thread creates the Jira issue, later ones comment on it.
 
@@ -59,7 +62,7 @@ Add the schema + handler to the matching domain file under
 vs. dispatch. Prefer extending an existing tool's params over adding a new
 one. Keep destructive/mutating actions in their own tool, never behind a flag
 on a read tool. Ground the system prompt in real capabilities (tools +
-`COMMANDS`) so the LLM doesn't invent limitations. See `docs/TOOL_DESIGN.md`
+`agent_commands()`) so the LLM doesn't invent limitations. See `docs/TOOL_DESIGN.md`
 for the fuller checklist (risk-tiering, ID-based targeting, description
 boundaries, etc).
 
