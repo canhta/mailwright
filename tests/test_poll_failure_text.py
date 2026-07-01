@@ -1,5 +1,5 @@
 from mailwright.owa.session import OwaLoginRequired
-from mailwright.telegram.bot import _poll_failure_text
+from mailwright.telegram.handlers import _poll_failure_text
 
 
 def test_owa_login_required_gets_actionable_nudge():
