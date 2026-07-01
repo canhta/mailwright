@@ -179,6 +179,30 @@ _TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "update_rule",
+            "description": (
+                "Edit a rule's text and/or set its status. Use status='retired' when the owner "
+                "says a rule no longer applies (this is reversible — set status='active' again "
+                "to reinstate it later). Call list_memory first to get the exact rule_id."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "rule_id": {"type": "integer", "description": "id from list_memory"},
+                    "text": {"type": "string", "description": "New rule text, if changing it"},
+                    "status": {
+                        "type": "string",
+                        "enum": ["active", "retired"],
+                        "description": "New status, if changing it",
+                    },
+                },
+                "required": ["rule_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "send_email",
             "description": (
                 "Send an email. Only call this after the owner has explicitly confirmed the "
@@ -340,6 +364,21 @@ class AnswerService:
                 for fid, text, created_at in self._vectors.list_by_kind("fact")
             ]
             return {"rules": rules, "facts": facts}
+
+        if name == "update_rule":
+            if not self._rules:
+                return {"updated": False, "error": "rulebook not configured"}
+            rule_id = args["rule_id"]
+            text = args.get("text")
+            status = args.get("status")
+            if text is None and status is None:
+                return {"updated": False, "error": "must provide text and/or status"}
+            if status is not None and status not in ("active", "retired"):
+                return {"updated": False, "error": "status must be 'active' or 'retired'"}
+            updated = self._rules.update(rule_id, text=text, status=status)
+            if not updated:
+                return {"updated": False, "error": f"no rule with id {rule_id}"}
+            return {"updated": True, "rule_id": rule_id}
 
         if name == "send_email":
             to = [addr.strip() for addr in args.get("to") or [] if addr.strip()]

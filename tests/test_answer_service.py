@@ -293,6 +293,122 @@ def test_list_memory_tool_without_rulebook_configured(tmp_path):
     assert result == {"rules": [], "facts": []}
 
 
+def test_update_rule_tool_edits_text(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    rb = RulebookRepo(conn)
+    rule_id = rb.add("manual", "Original rule", status="active")
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        VectorStore(conn),
+        FakeEmbedder(),
+        FakeToolCallLLM(),
+        topk=3,
+        rulebook_repo=rb,
+    )
+
+    result = svc._dispatch("update_rule", {"rule_id": rule_id, "text": "Corrected rule"})
+
+    assert result == {"updated": True, "rule_id": rule_id}
+    assert any(r.text == "Corrected rule" for r in rb.list_all())
+
+
+def test_update_rule_tool_retires_a_rule(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    rb = RulebookRepo(conn)
+    rule_id = rb.add("manual", "Some rule", status="active")
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        VectorStore(conn),
+        FakeEmbedder(),
+        FakeToolCallLLM(),
+        topk=3,
+        rulebook_repo=rb,
+    )
+
+    result = svc._dispatch("update_rule", {"rule_id": rule_id, "status": "retired"})
+
+    assert result["updated"] is True
+    assert not any(r.text == "Some rule" for r in rb.list_active())
+
+
+def test_update_rule_tool_rejects_invalid_status(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    rb = RulebookRepo(conn)
+    rule_id = rb.add("manual", "Some rule", status="active")
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        VectorStore(conn),
+        FakeEmbedder(),
+        FakeToolCallLLM(),
+        topk=3,
+        rulebook_repo=rb,
+    )
+
+    result = svc._dispatch("update_rule", {"rule_id": rule_id, "status": "deleted"})
+
+    assert result["updated"] is False
+    assert "error" in result
+
+
+def test_update_rule_tool_without_rulebook_configured(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        VectorStore(conn),
+        FakeEmbedder(),
+        FakeToolCallLLM(),
+        topk=3,
+    )
+
+    result = svc._dispatch("update_rule", {"rule_id": 1, "text": "x"})
+
+    assert result["updated"] is False
+    assert "error" in result
+
+
+def test_update_rule_tool_requires_a_field(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    rb = RulebookRepo(conn)
+    rule_id = rb.add("manual", "Some rule", status="active")
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        VectorStore(conn),
+        FakeEmbedder(),
+        FakeToolCallLLM(),
+        topk=3,
+        rulebook_repo=rb,
+    )
+
+    result = svc._dispatch("update_rule", {"rule_id": rule_id})
+
+    assert result["updated"] is False
+    assert "error" in result
+
+
+def test_update_rule_tool_missing_id_reports_failure(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    rb = RulebookRepo(conn)
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        VectorStore(conn),
+        FakeEmbedder(),
+        FakeToolCallLLM(),
+        topk=3,
+        rulebook_repo=rb,
+    )
+
+    result = svc._dispatch("update_rule", {"rule_id": 999, "text": "x"})
+
+    assert result["updated"] is False
+    assert "error" in result
+
+
 def test_memory_write_tools_available_without_jira(tmp_path):
     captured = {}
 
