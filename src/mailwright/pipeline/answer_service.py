@@ -50,7 +50,8 @@ _TOOLS = [
                 "Search Jira with a JQL query. Use for sprint overviews, project-level queries, "
                 "filtering by status/assignee/type/label, or 'tickets created/updated recently' "
                 '(e.g. jql="created >= -2h ORDER BY created DESC" — episodic memory does not '
-                "store ticket keys, this is the way to find them). Returns matching issues."
+                "store ticket keys, this is the way to find them). Returns matching issues. "
+                "For a single already-known issue key, use get_jira_issue instead."
             ),
             "parameters": {
                 "type": "object",
@@ -71,7 +72,8 @@ _TOOLS = [
             "name": "get_jira_issue",
             "description": (
                 "Fetch a single Jira issue by key (e.g. SU-1234). "
-                "Returns summary, status, type, priority, assignee, and description."
+                "Returns summary, status, type, priority, assignee, and description. "
+                "For searching by criteria instead of a known key, use search_jira_jql."
             ),
             "parameters": {
                 "type": "object",
@@ -104,7 +106,10 @@ _TOOLS = [
         "type": "function",
         "function": {
             "name": "search_memory",
-            "description": "Search episodic memory for past events and learned behavioral patterns.",
+            "description": (
+                "Search the episodic activity log for past events and learned behavioral patterns "
+                "around a topic. Does not cover stored facts or rules — use list_memory for those."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -118,7 +123,10 @@ _TOOLS = [
         "type": "function",
         "function": {
             "name": "get_recent_events",
-            "description": "Get the most recent episodic memory entries (activity log).",
+            "description": (
+                "Get the most recent episodic activity log entries. Does not cover stored facts "
+                "or rules — use list_memory for those."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -132,11 +140,12 @@ _TOOLS = [
         "function": {
             "name": "add_rule",
             "description": (
-                "Persist a behavioral rule the owner wants you to always follow when drafting "
+                "Persist a NEW behavioral rule the owner wants you to always follow when drafting "
                 "Jira tickets (tone, required fields, when to ask before creating, etc). The rule "
                 "takes effect immediately and shows up in /rules. Call this as soon as the owner "
                 "asks you to always do something a certain way — never reply that a rule is saved "
-                "unless this tool call succeeded."
+                "unless this tool call succeeded. To edit or retire an EXISTING rule, use "
+                "update_rule instead of adding a duplicate."
             ),
             "parameters": {
                 "type": "object",
@@ -155,11 +164,13 @@ _TOOLS = [
         "function": {
             "name": "store_fact",
             "description": (
-                "Persist a standing background fact the owner wants you to remember permanently "
+                "Persist a NEW standing background fact the owner wants you to remember permanently "
                 "(project context, definitions, business facts — not a drafting behavior rule, "
                 "use add_rule for those). Call this as soon as the owner asks you to remember or "
                 "note something — never reply that something is saved unless this tool call "
-                "succeeded."
+                "succeeded. If the owner is correcting or replacing an EXISTING fact, use "
+                "forget_fact on the old one (then store_fact the correction) instead of storing a "
+                "duplicate."
             ),
             "parameters": {
                 "type": "object",
@@ -232,9 +243,9 @@ _TOOLS = [
         "function": {
             "name": "send_email",
             "description": (
-                "Send an email. Only call this after the owner has explicitly confirmed the "
-                "To/Subject/Body you showed them ('send it', 'yes, send') — never on vague "
-                "approval like 'looks good' or 'ok'."
+                "Send an email. Irreversible once sent. Only call this after the owner has "
+                "explicitly confirmed the To/Subject/Body you showed them ('send it', 'yes, "
+                "send') — never on vague approval like 'looks good' or 'ok'."
             ),
             "parameters": {
                 "type": "object",
