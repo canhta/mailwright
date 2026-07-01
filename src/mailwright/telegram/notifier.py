@@ -1,6 +1,6 @@
 from telegram.constants import ParseMode
 
-from mailwright.pipeline.service import OutgoingMessage
+from mailwright.pipeline.message_service import OutgoingMessage
 from mailwright.telegram.markup import to_markup
 
 

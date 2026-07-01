@@ -1,5 +1,5 @@
 from mailwright.models import AttachmentContent, AttachmentMeta
-from mailwright.pipeline.uploader import AttachmentUploader
+from mailwright.pipeline.upload_service import AttachmentUploader
 
 
 class FakeOwa:

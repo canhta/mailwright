@@ -1,5 +1,5 @@
 from mailwright.owa.replies import render_status_reply
-from mailwright.pipeline.service import OutgoingMessage
+from mailwright.pipeline.message_service import OutgoingMessage
 
 
 class StatusReplyService:

@@ -35,13 +35,13 @@ from mailwright.owa.session import OwaLoginRequired, OwaSession, playwright_toke
 from mailwright.owa.state_store import read_state_file, write_state_file
 from mailwright.pipeline.approval_service import ApprovalService
 from mailwright.pipeline.attachment_loader import AttachmentLoader
+from mailwright.pipeline.message_service import PipelineService
 from mailwright.pipeline.nudge_service import NudgeService
 from mailwright.pipeline.reflection_service import ReflectionService
-from mailwright.pipeline.replier import Replier
-from mailwright.pipeline.service import PipelineService
+from mailwright.pipeline.reply_service import Replier
 from mailwright.pipeline.status_service import StatusReplyService
 from mailwright.pipeline.summary_service import SummaryService
-from mailwright.pipeline.uploader import AttachmentUploader
+from mailwright.pipeline.upload_service import AttachmentUploader
 from mailwright.poller.mail_poller import MailPoller
 from mailwright.poller.scheduling import humanize_seconds, parse_duration, should_poll_now
 from mailwright.repositories.approvals import ApprovalRepo

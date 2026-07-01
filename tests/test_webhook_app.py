@@ -1,5 +1,5 @@
 from fastapi.testclient import TestClient
-from mailwright.pipeline.service import OutgoingMessage
+from mailwright.pipeline.message_service import OutgoingMessage
 from mailwright.webhook.app import build_webhook_app
 
 

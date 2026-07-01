@@ -1,6 +1,6 @@
 from mailwright.db.connection import get_connection
 from mailwright.db.schema import init_db
-from mailwright.pipeline.replier import Replier
+from mailwright.pipeline.reply_service import Replier
 from mailwright.repositories.thread_ticket_map import ThreadTicketRepo
 
 

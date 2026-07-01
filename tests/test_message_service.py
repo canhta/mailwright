@@ -4,7 +4,7 @@ from mailwright.jira.models import DuplicateCandidate, TicketDraft, TicketResult
 from mailwright.llm.schemas import Classification
 from mailwright.models import Message
 from mailwright.pipeline.attachment_loader import LoadedAttachments
-from mailwright.pipeline.service import PipelineService
+from mailwright.pipeline.message_service import PipelineService
 from mailwright.repositories.approvals import ApprovalRepo
 from mailwright.repositories.processed_mails import ProcessedMail, ProcessedMailRepo
 from mailwright.tasks.drafter import DraftOutcome

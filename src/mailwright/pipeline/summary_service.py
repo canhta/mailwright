@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from mailwright.pipeline.service import OutgoingMessage
+from mailwright.pipeline.message_service import OutgoingMessage
 from mailwright.telegram.formatting import h
 
 
