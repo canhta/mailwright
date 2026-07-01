@@ -67,9 +67,15 @@ src/mailwright/
 
   telegram/             bot.py is pure wiring (Application factory, handler
                        registration, job-queue scheduling) — no business
-                       logic. handlers.py holds every /command, callback,
-                       and scheduled-job body, each delegating to a service.
-                       auth.py, card.py, dispatch.py, formatting.py,
+                       logic. commands/ holds the domain-grouped /command
+                       surface: base.py defines Action/Domain and the
+                       shared auth-gated dispatch; mail.py, jira.py,
+                       memory.py, chat.py, pending.py each own one domain's
+                       actions, mirroring agent/tools/{jira,memory,mail}.py's
+                       domain split. handlers.py holds callback/free-text
+                       handlers and scheduled-job bodies that aren't
+                       slash-command-shaped (poll job, summary/nudge/reflect
+                       jobs). auth.py, card.py, dispatch.py, formatting.py,
                        markup.py, notifier.py are the concrete
                        implementations satisfying pipeline/interfaces.py.
 
