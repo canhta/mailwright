@@ -90,3 +90,30 @@ def test_poll_persists_body_and_attachments(tmp_path):
     got = repo.get("<x>")
     assert got.body == "BODY"
     assert got.has_attachments is True
+
+
+class FakeRuntimeConfig:
+    def __init__(self, sender_allowlist):
+        self.sender_allowlist = sender_allowlist
+
+
+class FakeRuntimeConfigRepo:
+    def __init__(self, cfg):
+        self._cfg = cfg
+
+    def get(self):
+        return self._cfg
+
+
+def test_poll_uses_runtime_config_sender_allowlist_when_provided(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    repo = ProcessedMailRepo(conn)
+    settings = _settings(sender_allowlist=["should-not-be-used@example.com"])
+    client = FakeClient([_msg("m1", "runtime@example.com"), _msg("m2", "blocked@example.com")])
+    runtime_config = FakeRuntimeConfigRepo(FakeRuntimeConfig(["runtime@example.com"]))
+    poller = MailPoller(client, repo, settings, runtime_config=runtime_config)
+
+    new = poller.poll()
+
+    assert [m.sender for m in new] == ["runtime@example.com"]

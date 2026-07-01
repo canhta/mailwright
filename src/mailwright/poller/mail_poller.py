@@ -8,14 +8,22 @@ log = logging.getLogger(__name__)
 
 
 class MailPoller:
-    def __init__(self, client, repo: ProcessedMailRepo, settings: Settings) -> None:
+    def __init__(
+        self, client, repo: ProcessedMailRepo, settings: Settings, runtime_config=None
+    ) -> None:
         self._client = client
         self._repo = repo
         self._settings = settings
+        self._runtime_config = runtime_config
+
+    def _sender_allowlist(self) -> list[str]:
+        if self._runtime_config is not None:
+            return list(self._runtime_config.get().sender_allowlist)
+        return self._settings.sender_allowlist
 
     def _is_allowed(self, sender: str) -> bool:
         s = sender.lower()
-        for entry in self._settings.sender_allowlist:
+        for entry in self._sender_allowlist():
             entry = entry.lower()
             if "@" in entry:
                 if s == entry:
