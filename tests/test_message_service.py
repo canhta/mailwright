@@ -277,3 +277,62 @@ def test_urgent_mail_emits_escalation_notice(tmp_path):
     )
     out = svc.process_message(_msg(subject="URGENT prod down"))
     assert "🚨" in out[0].text and "prod down" in out[0].text
+
+
+class FakeRuntimeConfig:
+    def __init__(self, reply_all_enabled=True, urgent_ping_enabled=True):
+        self.reply_all_enabled = reply_all_enabled
+        self.urgent_ping_enabled = urgent_ping_enabled
+
+
+class FakeRuntimeConfigRepo:
+    def __init__(self, cfg):
+        self._cfg = cfg
+
+    def get(self):
+        return self._cfg
+
+
+def test_reply_all_disabled_skips_replier(tmp_path):
+    ts = FakeTicketService(dups=[])
+    up = FakeUploader()
+    rep = FakeReplier()
+    svc, _, _ = _svc(tmp_path, FakeClassifier(_cls()), FakeDrafter(_outcome(0.95)), ts, up)
+    svc._replier = rep
+    svc._runtime_config = FakeRuntimeConfigRepo(FakeRuntimeConfig(reply_all_enabled=False))
+    svc.process_message(_msg())
+    assert rep.calls == []
+
+
+def test_reply_all_enabled_still_calls_replier(tmp_path):
+    ts = FakeTicketService(dups=[])
+    up = FakeUploader()
+    rep = FakeReplier()
+    svc, _, _ = _svc(tmp_path, FakeClassifier(_cls()), FakeDrafter(_outcome(0.95)), ts, up)
+    svc._replier = rep
+    svc._runtime_config = FakeRuntimeConfigRepo(FakeRuntimeConfig(reply_all_enabled=True))
+    svc.process_message(_msg())
+    assert len(rep.calls) == 1
+
+
+def test_urgent_ping_disabled_suppresses_escalation_notice(tmp_path):
+    cls = Classification(
+        is_request=True,
+        needs_ticket=True,
+        issue_type="Story",
+        priority="High",
+        confidence=0.95,
+        reason="r",
+        is_urgent=True,
+    )
+    svc, proc, _ = _svc(
+        tmp_path,
+        FakeClassifier(cls),
+        FakeDrafter(_outcome(0.95)),
+        FakeTicketService(),
+        FakeUploader(),
+    )
+    svc._runtime_config = FakeRuntimeConfigRepo(FakeRuntimeConfig(urgent_ping_enabled=False))
+    out = svc.process_message(_msg(subject="URGENT prod down"))
+    assert len(out) == 1  # only the ticket effect, no 🚨 escalation
+    assert "🚨" not in out[0].text

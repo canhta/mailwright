@@ -44,6 +44,7 @@ class PipelineService:
         feedback=None,
         memory_context=None,
         triage_llm=None,
+        runtime_config=None,
     ) -> None:
         self._classifier = classifier
         self._loader = attachment_loader
@@ -58,6 +59,7 @@ class PipelineService:
         self._feedback = feedback
         self._memory = memory_context
         self._triage_llm = triage_llm
+        self._runtime_config = runtime_config
 
     def _triage(self, c, outcome, duplicates) -> TriageDecision:
         if self._triage_llm:
@@ -141,6 +143,10 @@ class PipelineService:
             decision.is_urgent,
         )
 
+        cfg = self._runtime_config.get() if self._runtime_config else None
+        reply_all_enabled = cfg.reply_all_enabled if cfg else True
+        urgent_ping_enabled = cfg.urgent_ping_enabled if cfg else True
+
         email_summary = f"From: {message.sender}\nSubject: {message.subject}"
 
         if decision.action in ("ignore", "skip_duplicate"):
@@ -157,7 +163,7 @@ class PipelineService:
             )
             self._uploader.upload_all(message.id, message.has_attachments, res.key)
             self._processed.set_action(mid, "created", res.key)
-            if self._replier:
+            if self._replier and reply_all_enabled:
                 self._replier.reply_link(message.conversation_id, message.id, res.key, res.url)
             if self._feedback:
                 self._feedback.on_outcome("created", email_summary, draft, res.key)
@@ -187,7 +193,7 @@ class PipelineService:
             text, buttons = self._render_card(approval_id, draft, outcome.confidence, duplicates)
             effects = [OutgoingMessage(text, buttons, approval_id)]
 
-        if decision.is_urgent:
+        if decision.is_urgent and urgent_ping_enabled:
             log.warning("pipeline: URGENT mail from %s — %r", message.sender, message.subject)
             esc = OutgoingMessage(text=f"🚨 Urgent mail from {message.sender}: {message.subject}")
             return [esc, *effects]
