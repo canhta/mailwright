@@ -21,7 +21,15 @@ _SYSTEM = (
     "rule when drafting tickets, you MUST call store_fact or add_rule first.\n"
     "- Never tell the owner something is saved, remembered, or noted unless the matching tool "
     "call returned stored: true. If the tool call fails, say so plainly instead of pretending "
-    "it worked.\n\n"
+    "it worked.\n"
+    "- If the owner corrects, retracts, or says something you stored no longer applies, call "
+    "list_memory to find the exact id, then update_rule or forget_fact — don't just store a new, "
+    "contradicting fact or rule on top of the old one, and don't silently keep drafting around "
+    "stale info.\n"
+    "- Never guess an id for update_rule/forget_fact; call list_memory first. If it's ambiguous "
+    "which stored item the owner means, ask instead of picking one.\n"
+    "- Retiring a rule (status='retired') is reversible; forgetting a fact is not, so confirm "
+    "which fact before calling forget_fact if there's any doubt.\n\n"
     "Email rules:\n"
     "- When drafting an email, write the draft as plain chat text first; don't call send_email "
     "until the owner explicitly confirms.\n"
@@ -481,6 +489,9 @@ class AnswerService:
                     "get_recent_events",
                     "store_fact",
                     "add_rule",
+                    "list_memory",
+                    "update_rule",
+                    "forget_fact",
                     "send_email",
                 )
             ]

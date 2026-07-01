@@ -439,6 +439,30 @@ def test_forget_fact_tool_missing_id_reports_failure(tmp_path):
     assert "error" in result
 
 
+def test_memory_management_tools_available_without_jira(tmp_path):
+    captured = {}
+
+    class RecordingLLM:
+        def run(self, system, messages, tools, dispatch, max_iter=5):
+            captured["tools"] = tools
+            return "reply"
+
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        VectorStore(conn),
+        FakeEmbedder(),
+        RecordingLLM(),
+        topk=3,
+    )
+
+    svc.answer("what do you remember about legacyapp?")
+
+    names = {t["function"]["name"] for t in captured["tools"]}
+    assert {"list_memory", "update_rule", "forget_fact"} <= names
+
+
 def test_memory_write_tools_available_without_jira(tmp_path):
     captured = {}
 
