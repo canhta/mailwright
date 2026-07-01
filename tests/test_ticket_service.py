@@ -1,7 +1,8 @@
+import pytest
 from mailwright.db.connection import get_connection
 from mailwright.db.schema import init_db
 from mailwright.jira.models import DuplicateCandidate, JiraIssueRef, TicketDraft
-from mailwright.jira.ticket_service import TicketService
+from mailwright.jira.ticket_service import TicketCreationInProgress, TicketService
 from mailwright.repositories.thread_ticket_map import ThreadTicketRepo
 
 
@@ -29,10 +30,17 @@ class FakeJira:
         return f"https://x/browse/{key}"
 
 
-def _service(tmp_path, jira):
+def _service(tmp_path, jira, claim_wait_attempts=6, claim_wait_seconds=0.4):
     conn = get_connection(str(tmp_path / "app.db"))
     init_db(conn)
-    return TicketService(jira, ThreadTicketRepo(conn), "PROD"), ThreadTicketRepo(conn)
+    svc = TicketService(
+        jira,
+        ThreadTicketRepo(conn),
+        "PROD",
+        claim_wait_attempts=claim_wait_attempts,
+        claim_wait_seconds=claim_wait_seconds,
+    )
+    return svc, ThreadTicketRepo(conn)
 
 
 def _draft():
@@ -66,6 +74,38 @@ def test_followup_in_same_conversation_comments_not_creates(tmp_path):
     assert len(jira.created) == 1  # no second issue
     assert len(jira.comments) == 1
     assert jira.comments[0][0] == "PROD-1"
+
+
+def test_losing_the_claim_race_comments_on_winners_ticket_instead_of_creating(tmp_path):
+    jira = FakeJira()
+    svc, repo = _service(tmp_path, jira, claim_wait_attempts=3, claim_wait_seconds=0)
+
+    # Simulate a concurrent process that already won the claim and finished
+    # creating the ticket before this call runs.
+    repo.try_claim("conv-1")
+    repo.finalize_claim("conv-1", "PROD-1", "<other-mid>")
+
+    res = svc.create_or_comment("conv-1", "<mid-2>", _draft())
+
+    assert res.created is False
+    assert res.commented is True
+    assert res.key == "PROD-1"
+    assert len(jira.created) == 0  # never creates a second issue
+
+
+def test_stuck_pending_claim_raises_instead_of_creating_duplicate(tmp_path):
+    jira = FakeJira()
+    svc, repo = _service(tmp_path, jira, claim_wait_attempts=3, claim_wait_seconds=0)
+
+    # A concurrent process claimed the conversation but never finalized it
+    # (e.g. it crashed mid-creation) — we must not fall through to creating
+    # a second issue while that claim is outstanding.
+    repo.try_claim("conv-1")
+
+    with pytest.raises(TicketCreationInProgress):
+        svc.create_or_comment("conv-1", "<mid-2>", _draft())
+
+    assert len(jira.created) == 0
 
 
 def test_find_duplicates_scopes_jql_to_project_and_excludes_done(tmp_path):

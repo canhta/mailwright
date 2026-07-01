@@ -2,6 +2,8 @@ import json
 import sqlite3
 from dataclasses import dataclass, field
 
+PENDING_KEY = "__pending__"
+
 
 @dataclass
 class ThreadTicket:
@@ -63,6 +65,44 @@ class ThreadTicketRepo:
             VALUES (?, ?, ?, ?)
             """,
             (conversation_id, ticket_key, source_message_id, owa_message_id),
+        )
+        self.conn.commit()
+
+    def try_claim(self, conversation_id: str) -> bool:
+        """Atomically stake a claim on a conversation before creating its ticket.
+
+        Two processes racing to handle the same thread both hit this — the
+        PRIMARY KEY on conversation_id means SQLite serializes the two
+        INSERTs and only one can win. The loser must not create a ticket.
+        """
+        cur = self.conn.execute(
+            "INSERT OR IGNORE INTO thread_ticket_map (conversation_id, ticket_key) VALUES (?, ?)",
+            (conversation_id, PENDING_KEY),
+        )
+        self.conn.commit()
+        return cur.rowcount == 1
+
+    def finalize_claim(
+        self,
+        conversation_id: str,
+        ticket_key: str,
+        source_message_id: str | None = None,
+        owa_message_id: str | None = None,
+    ) -> None:
+        self.conn.execute(
+            """
+            UPDATE thread_ticket_map
+            SET ticket_key = ?, source_message_id = ?, owa_message_id = ?
+            WHERE conversation_id = ?
+            """,
+            (ticket_key, source_message_id, owa_message_id, conversation_id),
+        )
+        self.conn.commit()
+
+    def release_claim(self, conversation_id: str) -> None:
+        self.conn.execute(
+            "DELETE FROM thread_ticket_map WHERE conversation_id = ? AND ticket_key = ?",
+            (conversation_id, PENDING_KEY),
         )
         self.conn.commit()
 
