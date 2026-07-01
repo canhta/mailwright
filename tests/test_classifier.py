@@ -1,6 +1,6 @@
-from mailwright.brain.classifier import MailClassifier
 from mailwright.llm.schemas import Classification
 from mailwright.models import Message
+from mailwright.tasks.classifier import MailClassifier
 
 
 class FakeLLM:

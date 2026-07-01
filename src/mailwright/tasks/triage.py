@@ -1,9 +1,9 @@
 import logging
 from dataclasses import dataclass
 
-from mailwright.brain.key_detector import find_jira_keys
 from mailwright.jira.models import TicketDraft
 from mailwright.models import Message
+from mailwright.tasks.key_detector import find_jira_keys
 
 log = logging.getLogger(__name__)
 

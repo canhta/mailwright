@@ -1,6 +1,6 @@
-from mailwright.brain.attachment_gate import AttachmentGate
 from mailwright.llm.schemas import ReadDecision
 from mailwright.models import AttachmentMeta
+from mailwright.tasks.attachment_gate import AttachmentGate
 
 
 class FakeLLM:

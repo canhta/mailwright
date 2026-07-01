@@ -1,4 +1,4 @@
-from mailwright.brain.key_detector import find_jira_keys, mail_references_ticket
+from mailwright.tasks.key_detector import find_jira_keys, mail_references_ticket
 
 
 def test_finds_keys_in_order_unique():

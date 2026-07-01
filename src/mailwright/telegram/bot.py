@@ -19,10 +19,6 @@ from telegram.ext import (
     filters,
 )
 
-from mailwright.brain.attachment_gate import AttachmentGate
-from mailwright.brain.attachment_loader import AttachmentLoader
-from mailwright.brain.classifier import MailClassifier
-from mailwright.brain.drafter import TicketDrafter
 from mailwright.config import Settings
 from mailwright.db.connection import get_connection
 from mailwright.db.schema import init_db
@@ -38,6 +34,7 @@ from mailwright.owa.session import OwaLoginRequired, OwaSession, playwright_toke
 from mailwright.owa.state_store import read_state_file, write_state_file
 from mailwright.pipeline.answer_service import AnswerService
 from mailwright.pipeline.approval_service import ApprovalService
+from mailwright.pipeline.attachment_loader import AttachmentLoader
 from mailwright.pipeline.nudge_service import NudgeService
 from mailwright.pipeline.reflection_service import ReflectionService
 from mailwright.pipeline.replier import Replier
@@ -55,6 +52,9 @@ from mailwright.repositories.rulebook import RulebookRepo
 from mailwright.repositories.status_events import StatusEventRepo
 from mailwright.repositories.style import StyleRepo
 from mailwright.repositories.thread_ticket_map import ThreadTicketRepo
+from mailwright.tasks.attachment_gate import AttachmentGate
+from mailwright.tasks.classifier import MailClassifier
+from mailwright.tasks.drafter import TicketDrafter
 from mailwright.telegram.dispatch import handle_callback
 from mailwright.telegram.formatting import h, md_to_html
 from mailwright.telegram.notifier import TelegramNotifier

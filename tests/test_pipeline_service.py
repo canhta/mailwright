@@ -1,13 +1,13 @@
-from mailwright.brain.attachment_loader import LoadedAttachments
-from mailwright.brain.drafter import DraftOutcome
 from mailwright.db.connection import get_connection
 from mailwright.db.schema import init_db
 from mailwright.jira.models import DuplicateCandidate, TicketDraft, TicketResult
 from mailwright.llm.schemas import Classification
 from mailwright.models import Message
+from mailwright.pipeline.attachment_loader import LoadedAttachments
 from mailwright.pipeline.service import PipelineService
 from mailwright.repositories.approvals import ApprovalRepo
 from mailwright.repositories.processed_mails import ProcessedMail, ProcessedMailRepo
+from mailwright.tasks.drafter import DraftOutcome
 
 
 class FakeClassifier:

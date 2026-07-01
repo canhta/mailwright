@@ -1,14 +1,14 @@
-from mailwright.brain.drafter import DraftOutcome
-from mailwright.brain.triage import (
+from mailwright.jira.models import TicketDraft
+from mailwright.llm.schemas import Classification
+from mailwright.models import Message
+from mailwright.tasks.drafter import DraftOutcome
+from mailwright.tasks.triage import (
     AUTO_CREATE,
     IGNORE,
     NEEDS_APPROVAL,
     SKIP_HAS_TICKET,
     TriageService,
 )
-from mailwright.jira.models import TicketDraft
-from mailwright.llm.schemas import Classification
-from mailwright.models import Message
 
 
 class FakeClassifier:

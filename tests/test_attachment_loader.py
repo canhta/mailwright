@@ -1,6 +1,6 @@
-from mailwright.brain.attachment_loader import AttachmentLoader, LoadedAttachments
 from mailwright.llm.schemas import ReadDecision
 from mailwright.models import AttachmentContent, AttachmentMeta, Message
+from mailwright.pipeline.attachment_loader import AttachmentLoader, LoadedAttachments
 
 
 def _msg(has=True):

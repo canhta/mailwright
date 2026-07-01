@@ -1,9 +1,9 @@
 import logging
 from dataclasses import dataclass
 
-from mailwright.brain.key_detector import find_jira_keys
 from mailwright.llm.schemas import TriageDecision
 from mailwright.models import Message
+from mailwright.tasks.key_detector import find_jira_keys
 from mailwright.telegram.card import render_approval_card
 
 log = logging.getLogger(__name__)

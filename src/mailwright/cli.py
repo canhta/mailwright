@@ -5,9 +5,6 @@ from pathlib import Path
 import httpx
 from openai import OpenAI
 
-from mailwright.brain.classifier import MailClassifier
-from mailwright.brain.drafter import TicketDrafter
-from mailwright.brain.triage import TriageService
 from mailwright.config import Settings
 from mailwright.db.connection import get_connection
 from mailwright.db.schema import init_db
@@ -22,6 +19,9 @@ from mailwright.owa.session import (
 from mailwright.owa.state_store import read_state_file, write_state_file
 from mailwright.poller.mail_poller import MailPoller
 from mailwright.repositories.processed_mails import ProcessedMailRepo
+from mailwright.tasks.classifier import MailClassifier
+from mailwright.tasks.drafter import TicketDrafter
+from mailwright.tasks.triage import TriageService
 
 
 class _TriageRunner:

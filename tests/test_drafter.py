@@ -1,7 +1,7 @@
-from mailwright.brain.drafter import DraftOutcome, TicketDrafter
 from mailwright.jira.models import TicketDraft
 from mailwright.llm.schemas import Draft
 from mailwright.models import Message
+from mailwright.tasks.drafter import DraftOutcome, TicketDrafter
 
 
 class FakeLLM:
