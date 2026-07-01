@@ -136,3 +136,67 @@ def test_unknown_action_returns_not_edit_card(tmp_path):
     out = svc.decide(aid, "frobnicate", user_id=111)
     assert out.authorized is True and out.edit_card is False
     assert ts.created == []
+
+
+class FakeRuntimeConfig:
+    def __init__(self, reply_all_enabled=True):
+        self.reply_all_enabled = reply_all_enabled
+
+
+class FakeRuntimeConfigRepo:
+    def __init__(self, cfg):
+        self._cfg = cfg
+
+    def get(self):
+        return self._cfg
+
+
+class FakeReplier:
+    def __init__(self):
+        self.calls = []
+
+    def reply_link(self, conv, owa_id, key, url):
+        self.calls.append((conv, owa_id, key, url))
+        return True
+
+
+def test_approve_calls_replier_when_reply_all_enabled(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    repo = ApprovalRepo(conn)
+    ts = FakeTicketService()
+    up = FakeUploader()
+    rep = FakeReplier()
+    svc = ApprovalService(
+        repo,
+        ts,
+        up,
+        [111],
+        auth_check=is_authorized,
+        replier=rep,
+        runtime_config=FakeRuntimeConfigRepo(FakeRuntimeConfig(reply_all_enabled=True)),
+    )
+    aid = repo.add("ticket", _payload())
+    svc.decide(aid, "approve", user_id=111)
+    assert len(rep.calls) == 1
+
+
+def test_approve_skips_replier_when_reply_all_disabled(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    repo = ApprovalRepo(conn)
+    ts = FakeTicketService()
+    up = FakeUploader()
+    rep = FakeReplier()
+    svc = ApprovalService(
+        repo,
+        ts,
+        up,
+        [111],
+        auth_check=is_authorized,
+        replier=rep,
+        runtime_config=FakeRuntimeConfigRepo(FakeRuntimeConfig(reply_all_enabled=False)),
+    )
+    aid = repo.add("ticket", _payload())
+    svc.decide(aid, "approve", user_id=111)
+    assert rep.calls == []

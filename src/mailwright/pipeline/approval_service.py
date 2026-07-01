@@ -21,6 +21,7 @@ class ApprovalService:
         auth_check: AuthChecker,
         replier=None,
         feedback=None,
+        runtime_config=None,
     ) -> None:
         self._repo = approval_repo
         self._tickets = ticket_service
@@ -29,6 +30,12 @@ class ApprovalService:
         self._auth_check = auth_check
         self._replier = replier
         self._feedback = feedback
+        self._runtime_config = runtime_config
+
+    def _reply_all_enabled(self) -> bool:
+        if self._runtime_config is None:
+            return True
+        return bool(self._runtime_config.get().reply_all_enabled)
 
     def _draft_from(self, payload: dict) -> TicketDraft:
         d = payload["draft"]
@@ -52,7 +59,7 @@ class ApprovalService:
             payload["conversation_id"], payload["message_id"], draft, owa_message_id=owa_message_id
         )
         self._uploader.upload_all(owa_message_id, payload.get("has_attachments", False), res.key)
-        if self._replier:
+        if self._replier and self._reply_all_enabled():
             self._replier.reply_link(payload["conversation_id"], owa_message_id, res.key, res.url)
         return res.key, f"✅ Created {res.key}: {res.url}"
 
