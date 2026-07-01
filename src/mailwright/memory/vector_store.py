@@ -22,6 +22,17 @@ class VectorStore:
         self.conn.commit()
         return cur.rowcount
 
+    def list_by_kind(self, kind: str) -> list[tuple[int, str, str]]:
+        rows = self.conn.execute(
+            "SELECT id, text, created_at FROM embeddings WHERE kind = ? ORDER BY id", (kind,)
+        ).fetchall()
+        return [(r["id"], r["text"], r["created_at"]) for r in rows]
+
+    def delete(self, row_id: int) -> bool:
+        cur = self.conn.execute("DELETE FROM embeddings WHERE id = ?", (row_id,))
+        self.conn.commit()
+        return cur.rowcount > 0
+
     def search(self, kind: str, query_vector: list[float], k: int) -> list[tuple[str, float]]:
         q = np.asarray(query_vector, dtype=np.float32)
         qn = np.linalg.norm(q) or 1.0
