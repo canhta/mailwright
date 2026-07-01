@@ -5,8 +5,9 @@ behind it. It was produced as a design pass over the existing (already
 reasonably sound) codebase, aimed at fixing specific coupling/duplication
 problems rather than a ground-up rewrite.
 
-Status: **draft design, pending final review.** See the corresponding
-implementation plan for execution order once approved.
+Status: **approved and implemented** (see migration approach below for the
+commit sequence). Only the OSS hygiene files were still pending as of this
+writing.
 
 ## Goals
 
@@ -145,13 +146,24 @@ src/mailwright/
     (unchanged — these become the concrete Protocol implementations
     consumed via pipeline/interfaces.py)
 
-  container.py      NEW — composition root. AgentContainer dataclass +
-                     build_container(settings) -> AgentContainer,
-                     constructing every concrete object exactly once:
-                     db connection, all repos, llm/, jira/, owa/ clients,
-                     tasks/, agent/, every pipeline/ service, poller/.
-                     cli.py and telegram/bot.py both call this instead of
-                     each re-deriving the object graph.
+  container.py      NEW — composition root for the full agent. AgentContainer
+                     dataclass + build_container(settings, commands) ->
+                     AgentContainer, constructing every concrete object the
+                     agent needs exactly once: db connection, all repos,
+                     llm/, jira/, owa/ clients, agent/, every pipeline/
+                     service, poller/. telegram/bot.py::build_agent() calls
+                     this instead of re-deriving the object graph inline.
+
+                     cli.py's poll/triage commands deliberately do NOT route
+                     through build_container() — they're intentionally
+                     lightweight dry-run paths (see README/docs/SETUP.md)
+                     that shouldn't require Jira/Telegram config just to
+                     construct. The one concrete duplication found between
+                     them (OwaSession -> OutlookRestClient construction) is
+                     extracted as container.build_owa_client(settings),
+                     shared by both build_container() and cli.py's
+                     _build_poller() — fixing the actual duplication without
+                     forcing the lightweight commands through the full graph.
 
   db/, ingest/, jira/, memory/, owa/, poller/, repositories/, webhook/
                      unchanged
@@ -195,7 +207,8 @@ issue/PR templates, `py.typed` marker, CODEOWNERS.
 Big-bang: one branch, restructure fully, land together — not staged across
 multiple deploys. Internally sequenced as separate commits for reviewability:
 
-1. `container.py` composition root; `cli.py` and `telegram/bot.py` switch to it.
+1. `container.py` composition root; `telegram/bot.py` switches to it, `cli.py`
+   shares only `build_owa_client()`.
 2. Extract `llm/` from `brain/llm.py` + `brain/schemas.py`.
 3. Rename `brain/` → `tasks/` (remaining files).
 4. Split `pipeline/answer_service.py` into `agent/` (new top-level package),
