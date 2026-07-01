@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     memory_topk: int = 4
 
     # Proactive output
+    timezone: str = "Asia/Ho_Chi_Minh"
     summary_time: str = "08:00"
     summary_window_hours: int = 24
     nudge_stale_days: int = 3

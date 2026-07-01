@@ -1,7 +1,10 @@
+import zoneinfo
+
 import uvicorn
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
+    Defaults,
     MessageHandler,
     filters,
 )
@@ -27,7 +30,8 @@ from mailwright.webhook.app import build_webhook_app
 def build_agent(settings: Settings) -> Application:
     container = build_container(settings, commands=agent_commands())
 
-    app = Application.builder().token(settings.telegram_bot_token).build()
+    defaults = Defaults(tzinfo=zoneinfo.ZoneInfo(settings.timezone))
+    app = Application.builder().token(settings.telegram_bot_token).defaults(defaults).build()
     app.bot_data.update(
         {
             "settings": container.settings,
