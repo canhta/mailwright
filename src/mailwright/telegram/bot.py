@@ -35,6 +35,7 @@ from mailwright.owa.session import OwaLoginRequired, OwaSession, playwright_toke
 from mailwright.owa.state_store import read_state_file, write_state_file
 from mailwright.pipeline.approval_service import ApprovalService
 from mailwright.pipeline.attachment_loader import AttachmentLoader
+from mailwright.pipeline.deletion_service import DeletionService
 from mailwright.pipeline.message_service import PipelineService
 from mailwright.pipeline.nudge_service import NudgeService
 from mailwright.pipeline.reflection_service import ReflectionService
@@ -136,6 +137,7 @@ def build_agent(settings: Settings) -> Application:
         owa=owa,
     )
     reflection_svc = ReflectionService(episodic, style, rulebook, draft_llm, lookback=50)
+    deletion_svc = DeletionService(jira, episodic, vector_store)
 
     pipeline = PipelineService(
         classifier,
@@ -179,6 +181,7 @@ def build_agent(settings: Settings) -> Application:
             "answer_service": answer_svc,
             "reflection": reflection_svc,
             "rulebook": rulebook,
+            "deletion_service": deletion_svc,
         }
     )
     app.add_handler(CallbackQueryHandler(_on_callback))
@@ -333,21 +336,14 @@ async def _on_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not keys:
         await update.message.reply_text("Usage: /delete SU-123 SU-456", parse_mode=ParseMode.HTML)
         return
-    jira_client = context.bot_data["jira"]
-    episodic = context.bot_data["episodic"]
-    vector_store = context.bot_data["vector_store"]
+    deletion_service = context.bot_data["deletion_service"]
     lines = []
     for key in keys:
-        key = key.upper().strip()
-        try:
-            jira_client.delete_issue(key)
-            ep_removed = episodic.delete_by_ref(key)
-            vs_removed = vector_store.delete_by_ref(key)
-            log.info("delete: removed %s (episodic=%d, vectors=%d)", key, ep_removed, vs_removed)
-            lines.append(f"🗑 Deleted {h(key)}")
-        except Exception as exc:
-            log.warning("delete: failed to remove %s: %s", key, exc)
-            lines.append(f"❌ {h(key)}: {h(exc)}")
+        outcome = deletion_service.delete(key)
+        if outcome.deleted:
+            lines.append(f"🗑 Deleted {h(outcome.key)}")
+        else:
+            lines.append(f"❌ {h(outcome.key)}: {h(outcome.error)}")
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 

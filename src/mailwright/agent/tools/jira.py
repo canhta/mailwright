@@ -1,5 +1,6 @@
 from mailwright.agent.formatting import format_jql_results
 from mailwright.jira.adf import adf_to_text
+from mailwright.pipeline.deletion_service import DeletionService
 
 SCHEMAS = [
     {
@@ -68,8 +69,7 @@ SCHEMAS = [
 class JiraTools:
     def __init__(self, jira, episodic_repo, vector_store) -> None:
         self._jira = jira
-        self._episodic = episodic_repo
-        self._vectors = vector_store
+        self._deletion = DeletionService(jira, episodic_repo, vector_store)
 
     def search_jira_jql(self, args: dict) -> object:
         if not self._jira:
@@ -108,14 +108,10 @@ class JiraTools:
     def delete_jira_issue(self, args: dict) -> object:
         if not self._jira:
             return {"error": "Jira not configured"}
-        key = args["key"].upper().strip()
-        try:
-            self._jira.delete_issue(key)
-            self._episodic.delete_by_ref(key)
-            self._vectors.delete_by_ref(key)
-            return {"key": key, "deleted": True}
-        except Exception as exc:
-            return {"key": key, "deleted": False, "error": str(exc)}
+        outcome = self._deletion.delete(args["key"])
+        if outcome.deleted:
+            return {"key": outcome.key, "deleted": True}
+        return {"key": outcome.key, "deleted": False, "error": outcome.error}
 
     def handlers(self) -> dict:
         return {
