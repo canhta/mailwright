@@ -203,6 +203,25 @@ _TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "forget_fact",
+            "description": (
+                "Permanently delete a stored fact by id. Irreversible — the fact is gone, not just "
+                "hidden (re-add it with store_fact if it turns out you need it again). Call "
+                "list_memory first to confirm the exact fact_id; if it's ambiguous which fact the "
+                "owner means, ask instead of guessing."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fact_id": {"type": "integer", "description": "id from list_memory"},
+                },
+                "required": ["fact_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "send_email",
             "description": (
                 "Send an email. Only call this after the owner has explicitly confirmed the "
@@ -379,6 +398,13 @@ class AnswerService:
             if not updated:
                 return {"updated": False, "error": f"no rule with id {rule_id}"}
             return {"updated": True, "rule_id": rule_id}
+
+        if name == "forget_fact":
+            fact_id = args["fact_id"]
+            deleted = self._vectors.delete(fact_id)
+            if not deleted:
+                return {"deleted": False, "error": f"no fact with id {fact_id}"}
+            return {"deleted": True, "fact_id": fact_id}
 
         if name == "send_email":
             to = [addr.strip() for addr in args.get("to") or [] if addr.strip()]

@@ -409,6 +409,36 @@ def test_update_rule_tool_missing_id_reports_failure(tmp_path):
     assert "error" in result
 
 
+def test_forget_fact_tool_deletes_by_id(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    vs = VectorStore(conn)
+    fact_id = vs.add("fact", "Outdated fact", [1.0, 0.0])
+    svc = AnswerService(EpisodicRepo(conn), vs, FakeEmbedder(), FakeToolCallLLM(), topk=3)
+
+    result = svc._dispatch("forget_fact", {"fact_id": fact_id})
+
+    assert result == {"deleted": True, "fact_id": fact_id}
+    assert vs.list_by_kind("fact") == []
+
+
+def test_forget_fact_tool_missing_id_reports_failure(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        VectorStore(conn),
+        FakeEmbedder(),
+        FakeToolCallLLM(),
+        topk=3,
+    )
+
+    result = svc._dispatch("forget_fact", {"fact_id": 999})
+
+    assert result["deleted"] is False
+    assert "error" in result
+
+
 def test_memory_write_tools_available_without_jira(tmp_path):
     captured = {}
 
