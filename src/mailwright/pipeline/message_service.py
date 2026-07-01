@@ -3,8 +3,8 @@ from dataclasses import dataclass
 
 from mailwright.llm.schemas import TriageDecision
 from mailwright.models import Message
+from mailwright.pipeline.interfaces import ApprovalCardRenderer
 from mailwright.tasks.key_detector import find_jira_keys
-from mailwright.telegram.card import render_approval_card
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +39,7 @@ class PipelineService:
         approval_repo,
         processed_repo,
         threshold: float,
+        card_renderer: ApprovalCardRenderer,
         replier=None,
         feedback=None,
         memory_context=None,
@@ -52,6 +53,7 @@ class PipelineService:
         self._approvals = approval_repo
         self._processed = processed_repo
         self._threshold = threshold
+        self._render_card = card_renderer
         self._replier = replier
         self._feedback = feedback
         self._memory = memory_context
@@ -182,7 +184,7 @@ class PipelineService:
             approval_id = self._approvals.add("ticket", payload)
             log.info("pipeline: queued pending approval id=%d", approval_id)
             self._processed.set_action(mid, "needs_approval")
-            text, buttons = render_approval_card(approval_id, draft, outcome.confidence, duplicates)
+            text, buttons = self._render_card(approval_id, draft, outcome.confidence, duplicates)
             effects = [OutgoingMessage(text, buttons, approval_id)]
 
         if decision.is_urgent:

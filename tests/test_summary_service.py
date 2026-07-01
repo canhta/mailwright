@@ -4,6 +4,7 @@ from mailwright.pipeline.summary_service import SummaryService
 from mailwright.repositories.approvals import ApprovalRecord
 from mailwright.repositories.processed_mails import ProcessedMail
 from mailwright.repositories.status_events import StatusEvent
+from mailwright.telegram.formatting import h
 
 
 class FakeProcessed:
@@ -42,7 +43,7 @@ def test_build_summary_contains_sections():
         [ApprovalRecord(1, "ticket", {"draft": {"summary": "Vague ask"}}, "pending")]
     )
     status = FakeStatus([StatusEvent("PROD-3", "Done", "2026-06-29 09:00:00")])
-    svc = SummaryService(processed, approvals, status, window_hours=24)
+    svc = SummaryService(processed, approvals, status, window_hours=24, text_escape=h)
 
     msg = svc.build(datetime(2026, 6, 30, 8, 0, 0))
     text = msg.text
@@ -59,7 +60,7 @@ def test_summary_escapes_html_in_dynamic_content():
             )
         ]
     )
-    svc = SummaryService(processed, FakeApprovals([]), FakeStatus([]), 24)
+    svc = SummaryService(processed, FakeApprovals([]), FakeStatus([]), 24, text_escape=h)
     text = svc.build(datetime(2026, 6, 30, 8, 0, 0)).text
     assert "AT&amp;T" in text
     assert "&lt;issue&gt;" in text
@@ -67,6 +68,6 @@ def test_summary_escapes_html_in_dynamic_content():
 
 
 def test_empty_summary_says_none():
-    svc = SummaryService(FakeProcessed([]), FakeApprovals([]), FakeStatus([]), 24)
+    svc = SummaryService(FakeProcessed([]), FakeApprovals([]), FakeStatus([]), 24, text_escape=h)
     text = svc.build(datetime(2026, 6, 30, 8, 0, 0)).text
     assert "none" in text.lower()

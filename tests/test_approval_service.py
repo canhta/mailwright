@@ -3,6 +3,7 @@ from mailwright.db.schema import init_db
 from mailwright.jira.models import TicketResult
 from mailwright.pipeline.approval_service import ApprovalService
 from mailwright.repositories.approvals import ApprovalRepo
+from mailwright.telegram.auth import is_authorized
 
 
 class FakeTicketService:
@@ -46,7 +47,7 @@ def _svc(tmp_path, allowlist=(111,)):
     repo = ApprovalRepo(conn)
     ts = FakeTicketService()
     up = FakeUploader()
-    svc = ApprovalService(repo, ts, up, list(allowlist))
+    svc = ApprovalService(repo, ts, up, list(allowlist), auth_check=is_authorized)
     return svc, repo, ts, up
 
 
@@ -110,7 +111,7 @@ def test_memory_called_on_approve_edit_reject(tmp_path):
     ts = FakeTicketService()
     up = FakeUploader()
     mgr = FakeMemoryManager()
-    svc = ApprovalService(repo, ts, up, [111], feedback=mgr)
+    svc = ApprovalService(repo, ts, up, [111], auth_check=is_authorized, feedback=mgr)
 
     # approve → on_outcome("approved", ...)
     aid = repo.add("ticket", _payload())

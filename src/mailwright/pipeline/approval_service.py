@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from mailwright.jira.models import TicketDraft
-from mailwright.telegram.auth import is_authorized
+from mailwright.pipeline.interfaces import AuthChecker
 
 
 @dataclass
@@ -18,6 +18,7 @@ class ApprovalService:
         ticket_service,
         uploader,
         allowlist: list[int],
+        auth_check: AuthChecker,
         replier=None,
         feedback=None,
     ) -> None:
@@ -25,6 +26,7 @@ class ApprovalService:
         self._tickets = ticket_service
         self._uploader = uploader
         self._allowlist = allowlist
+        self._auth_check = auth_check
         self._replier = replier
         self._feedback = feedback
 
@@ -55,7 +57,7 @@ class ApprovalService:
         return res.key, f"✅ Created {res.key}: {res.url}"
 
     def decide(self, approval_id: int, action: str, user_id: int) -> DecisionOutcome:
-        if not is_authorized(user_id, self._allowlist):
+        if not self._auth_check(user_id, self._allowlist):
             return DecisionOutcome(False, "You are not authorized.", False)
         rec = self._repo.get(approval_id)
         if rec is None or rec.status != "pending":
@@ -95,7 +97,7 @@ class ApprovalService:
         return DecisionOutcome(True, "Unknown action.", False)
 
     def apply_edit(self, approval_id: int, new_description: str, user_id: int) -> DecisionOutcome:
-        if not is_authorized(user_id, self._allowlist):
+        if not self._auth_check(user_id, self._allowlist):
             return DecisionOutcome(False, "You are not authorized.", False)
         rec = self._repo.get(approval_id)
         if rec is None or rec.status != "awaiting_edit":

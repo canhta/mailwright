@@ -1,21 +1,30 @@
 from datetime import datetime, timedelta
 
+from mailwright.pipeline.interfaces import TextFormatter
 from mailwright.pipeline.message_service import OutgoingMessage
-from mailwright.telegram.formatting import h
 
 
 class SummaryService:
-    def __init__(self, processed_repo, approval_repo, status_repo, window_hours: int) -> None:
+    def __init__(
+        self,
+        processed_repo,
+        approval_repo,
+        status_repo,
+        window_hours: int,
+        text_escape: TextFormatter,
+    ) -> None:
         self._processed = processed_repo
         self._approvals = approval_repo
         self._status = status_repo
         self._window = window_hours
+        self._escape = text_escape
 
     def build(self, now: datetime) -> OutgoingMessage:
         since = (now - timedelta(hours=self._window)).strftime("%Y-%m-%d %H:%M:%S")
         created = self._processed.list_by_action_since("created", since)
         pending = self._approvals.list_pending()
         events = self._status.list_since(since)
+        h = self._escape
 
         lines = [f"🌅 Daily summary {now.strftime('%Y-%m-%d')}", ""]
         lines.append(f"Tickets created ({len(created)}):")

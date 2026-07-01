@@ -56,6 +56,8 @@ from mailwright.repositories.thread_ticket_map import ThreadTicketRepo
 from mailwright.tasks.attachment_gate import AttachmentGate
 from mailwright.tasks.classifier import MailClassifier
 from mailwright.tasks.drafter import TicketDrafter
+from mailwright.telegram.auth import is_authorized
+from mailwright.telegram.card import render_approval_card
 from mailwright.telegram.dispatch import handle_callback
 from mailwright.telegram.formatting import h, md_to_html
 from mailwright.telegram.notifier import TelegramNotifier
@@ -148,6 +150,7 @@ def build_agent(settings: Settings) -> Application:
         approvals,
         processed,
         settings.confidence_threshold,
+        card_renderer=render_approval_card,
         replier=replier,
         feedback=memory_mgr,
         memory_context=memory_ctx,
@@ -158,6 +161,7 @@ def build_agent(settings: Settings) -> Application:
         tickets,
         uploader,
         settings.telegram_allowlist,
+        auth_check=is_authorized,
         replier=replier,
         feedback=memory_mgr,
     )
@@ -207,6 +211,7 @@ async def _summary_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         context.bot_data["approvals"],
         context.bot_data["status_events"],
         s.summary_window_hours,
+        text_escape=h,
     )
     await _notifier(context).send(svc.build(datetime.now()))
 
@@ -215,7 +220,9 @@ async def _nudge_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     from datetime import datetime
 
     s = context.bot_data["settings"]
-    msg = NudgeService(context.bot_data["approvals"], s.nudge_stale_days).build(datetime.now())
+    msg = NudgeService(context.bot_data["approvals"], s.nudge_stale_days, text_escape=h).build(
+        datetime.now()
+    )
     if msg is not None:
         await _notifier(context).send(msg)
 

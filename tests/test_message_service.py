@@ -8,6 +8,7 @@ from mailwright.pipeline.message_service import PipelineService
 from mailwright.repositories.approvals import ApprovalRepo
 from mailwright.repositories.processed_mails import ProcessedMail, ProcessedMailRepo
 from mailwright.tasks.drafter import DraftOutcome
+from mailwright.telegram.card import render_approval_card
 
 
 class FakeClassifier:
@@ -102,6 +103,7 @@ def _svc(tmp_path, classifier, drafter, ticket_service, uploader, threshold=0.8,
         appr,
         proc,
         threshold,
+        card_renderer=render_approval_card,
         memory_context=memory,
     )
     return svc, proc, appr
@@ -249,6 +251,7 @@ def test_pipeline_records_memory_on_auto_create(tmp_path):
         appr,
         proc,
         0.8,
+        card_renderer=render_approval_card,
         feedback=mgr,
     )
     svc.process_message(_msg())
