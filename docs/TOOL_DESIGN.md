@@ -2,8 +2,9 @@
 
 Distilled from Anthropic's ["Building Effective Agents"](https://www.anthropic.com/engineering/building-effective-agents)
 and OpenAI's ["A Practical Guide to Building Agents"](https://cdn.openai.com/business-guides-and-resources/a-practical-guide-to-building-agents.pdf),
-applied to `AnswerService._TOOLS` — the single tool-calling loop in
-`src/mailwright/pipeline/answer_service.py` that backs Telegram free-text chat.
+applied to `AnswerService` — the single tool-calling loop in
+`src/mailwright/agent/service.py` (tool schemas + handlers live in
+`src/mailwright/agent/tools/`) that backs Telegram free-text chat.
 
 ## Principles
 

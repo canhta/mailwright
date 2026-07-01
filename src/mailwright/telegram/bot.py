@@ -19,6 +19,7 @@ from telegram.ext import (
     filters,
 )
 
+from mailwright.agent.service import AnswerService
 from mailwright.config import Settings
 from mailwright.db.connection import get_connection
 from mailwright.db.schema import init_db
@@ -32,7 +33,6 @@ from mailwright.memory.vector_store import VectorStore
 from mailwright.owa.rest_client import OutlookRestClient
 from mailwright.owa.session import OwaLoginRequired, OwaSession, playwright_token_extractor
 from mailwright.owa.state_store import read_state_file, write_state_file
-from mailwright.pipeline.answer_service import AnswerService
 from mailwright.pipeline.approval_service import ApprovalService
 from mailwright.pipeline.attachment_loader import AttachmentLoader
 from mailwright.pipeline.nudge_service import NudgeService
