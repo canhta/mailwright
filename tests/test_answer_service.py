@@ -252,6 +252,47 @@ def test_store_fact_tool_rejects_empty_fact(tmp_path):
     assert "error" in result
 
 
+def test_list_memory_tool_returns_rules_and_facts(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    vs = VectorStore(conn)
+    rb = RulebookRepo(conn)
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        vs,
+        FakeEmbedder(),
+        FakeToolCallLLM(),
+        topk=3,
+        rulebook_repo=rb,
+    )
+    rule_id = rb.add("manual", "Always ask before P1s", status="active")
+    fact_id = vs.add("fact", "LegacyApp is maintenance-only", [1.0, 0.0])
+
+    result = svc._dispatch("list_memory", {})
+
+    assert result["rules"] == [{"id": rule_id, "text": "Always ask before P1s", "status": "active"}]
+    assert len(result["facts"]) == 1
+    assert result["facts"][0]["id"] == fact_id
+    assert result["facts"][0]["text"] == "LegacyApp is maintenance-only"
+    assert "created_at" in result["facts"][0]
+
+
+def test_list_memory_tool_without_rulebook_configured(tmp_path):
+    conn = get_connection(str(tmp_path / "app.db"))
+    init_db(conn)
+    svc = AnswerService(
+        EpisodicRepo(conn),
+        VectorStore(conn),
+        FakeEmbedder(),
+        FakeToolCallLLM(),
+        topk=3,
+    )
+
+    result = svc._dispatch("list_memory", {})
+
+    assert result == {"rules": [], "facts": []}
+
+
 def test_memory_write_tools_available_without_jira(tmp_path):
     captured = {}
 

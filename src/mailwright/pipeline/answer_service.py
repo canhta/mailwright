@@ -168,6 +168,17 @@ _TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "list_memory",
+            "description": (
+                "List every stored rule and fact, with their IDs. Call this before update_rule "
+                "or forget_fact so you know the exact id to target — never guess an id."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "send_email",
             "description": (
                 "Send an email. Only call this after the owner has explicitly confirmed the "
@@ -317,6 +328,18 @@ class AnswerService:
                 return {"stored": True, "fact": text}
             except Exception as exc:
                 return {"stored": False, "error": str(exc)}
+
+        if name == "list_memory":
+            rules = (
+                [{"id": r.id, "text": r.text, "status": r.status} for r in self._rules.list_all()]
+                if self._rules
+                else []
+            )
+            facts = [
+                {"id": fid, "text": text, "created_at": created_at}
+                for fid, text, created_at in self._vectors.list_by_kind("fact")
+            ]
+            return {"rules": rules, "facts": facts}
 
         if name == "send_email":
             to = [addr.strip() for addr in args.get("to") or [] if addr.strip()]
