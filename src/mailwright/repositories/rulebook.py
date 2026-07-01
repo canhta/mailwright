@@ -22,6 +22,28 @@ class RulebookRepo:
         assert cur.lastrowid is not None
         return cur.lastrowid
 
+    def list_all(self) -> list[Rule]:
+        rows = self.conn.execute(
+            "SELECT id, kind, text, status FROM rulebook ORDER BY id"
+        ).fetchall()
+        return [Rule(r["id"], r["kind"], r["text"], r["status"]) for r in rows]
+
+    def update(self, rule_id: int, text: str | None = None, status: str | None = None) -> bool:
+        if text is None and status is None:
+            return False
+        fields = []
+        values: list[object] = []
+        if text is not None:
+            fields.append("text = ?")
+            values.append(text)
+        if status is not None:
+            fields.append("status = ?")
+            values.append(status)
+        values.append(rule_id)
+        cur = self.conn.execute(f"UPDATE rulebook SET {', '.join(fields)} WHERE id = ?", values)
+        self.conn.commit()
+        return cur.rowcount > 0
+
     def _list(self, status: str) -> list[Rule]:
         rows = self.conn.execute(
             "SELECT id, kind, text, status FROM rulebook WHERE status = ? ORDER BY id", (status,)
