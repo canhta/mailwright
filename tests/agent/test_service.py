@@ -3,7 +3,6 @@ from mailwright.db.connection import get_connection
 from mailwright.db.schema import init_db
 from mailwright.memory.vector_store import VectorStore
 from mailwright.repositories.episodic import EpisodicRepo
-
 from tests.agent.conftest import FakeEmbedder, FakeToolCallLLM, make_service
 
 

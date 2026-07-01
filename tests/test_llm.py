@@ -1,4 +1,5 @@
 import pytest
+
 from mailwright.llm.client import LlmError, OpenAIStructuredLLM
 from mailwright.llm.schemas import Classification
 

@@ -4,7 +4,6 @@ from mailwright.db.schema import init_db
 from mailwright.memory.vector_store import VectorStore
 from mailwright.repositories.episodic import EpisodicRepo
 from mailwright.repositories.rulebook import RulebookRepo
-
 from tests.agent.conftest import FakeEmbedder, FakeToolCallLLM, make_service
 
 

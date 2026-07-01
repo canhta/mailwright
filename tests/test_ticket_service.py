@@ -1,4 +1,5 @@
 import pytest
+
 from mailwright.db.connection import get_connection
 from mailwright.db.schema import init_db
 from mailwright.jira.models import DuplicateCandidate, JiraIssueRef, TicketDraft

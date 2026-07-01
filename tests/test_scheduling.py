@@ -1,4 +1,5 @@
 import pytest
+
 from mailwright.poller.scheduling import humanize_seconds, parse_duration, should_poll_now
 
 

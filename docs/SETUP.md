@@ -1,18 +1,19 @@
-# Setup & Test Guide — M1 + M2 (Mail Read + Jira Integration)
+# Setup & Test Guide
 
-This guide gets the **M1 foundation** running against your **real Outlook/M365
-mailbox** so you can confirm mail access works **without any admin involvement**,
-and that the poller pulls the right mails.
+Gets mailwright running end to end against your real Outlook/M365 mailbox,
+in four stages: read mail (M1), file Jira tickets (M2), draft with an LLM
+(M3), and run the full interactive Telegram agent (M4).
 
-> **Why this approach:** the Microsoft Graph API path was blocked by the company
-> tenant (app registration disabled; `Mail.*` consent requires admin — see spec
-> §9.1/§9.2). Final approach: **drive Outlook Web (OWA) with Playwright** — you
-> sign in once in a real browser, and the tool reuses that session to call the
-> **Outlook REST API** (`outlook.office.com/api/v2.0`). Zero admin.
+> **Why OWA instead of Microsoft Graph:** the Graph API path was blocked by
+> the company tenant (app registration disabled; `Mail.*` consent requires
+> admin). So mailwright drives Outlook Web (OWA) with Playwright instead —
+> you sign in once in a real browser, and it reuses that session to call the
+> Outlook REST API (`outlook.office.com/api/v2.0`). No admin involvement, no
+> app registration.
 
-> **Goal of this milestone:** prove `login` works with your own account and that
-> `poll` returns candidate mails. Jira, Telegram, replies, and the agent brain
-> come in later milestones (M2–M8).
+Start with M1 below: confirm `login` works with your own account and that
+`poll` returns candidate mails. Jira, LLM drafting, and the Telegram agent
+build on top in M2–M4.
 
 ---
 
@@ -42,7 +43,8 @@ uv run pytest -q                     # sanity check: all unit tests pass
 cp .env.example .env
 ```
 
-Generate a key (still required by config; reserved for encrypting state later):
+Generate a key — it encrypts the OWA session file at rest, so it's needed
+from the first login onward, not just for later milestones:
 
 ```bash
 uv run python -c "from mailwright.crypto import generate_key; print(generate_key())"
@@ -62,8 +64,8 @@ SENDER_ALLOWLIST=product-team@example.com, example.com
 
 COMPANY_DOMAIN=example.com
 
-# Persistent browser profile that holds your signed-in OWA session.
-OWA_PROFILE_PATH=data/owa_profile
+# Where your signed-in OWA session gets stored, encrypted with FERNET_KEY.
+OWA_STATE_PATH=data/owa_state.enc
 
 DB_PATH=data/app.db
 FERNET_KEY=<paste the generated key here>
@@ -84,8 +86,9 @@ uv run python -m mailwright.cli login
 - **Sign in with your COMPANY account** and complete MFA.
 - Wait until your **inbox is fully loaded**, then return to the terminal and
   **press ENTER**.
-- The terminal prints `Login complete; OWA session profile saved.` and the
-  session is stored under `data/owa_profile/`.
+- The terminal prints `Login complete; OWA session saved to data/owa_state.enc.`
+  — that one encrypted file is your whole session; there's no profile
+  directory to manage.
 
 No consent prompt, no admin — it's a normal browser sign-in, exactly like opening
 Outlook on the web.
@@ -98,7 +101,7 @@ Outlook on the web.
 uv run python -m mailwright.cli poll
 ```
 
-This launches a **headless** browser with the saved profile, captures the OWA API
+This launches a **headless** browser with the saved session, captures the OWA API
 token, calls the Outlook REST API, and stores matching mails. Expected output:
 
 ```
@@ -124,16 +127,17 @@ Stored 2 new candidate mail(s):
 
 ## 5. Deploy the session to the VPS (when ready)
 
-1. Copy the **`data/owa_profile/`** directory (and your `.env`) to the VPS, same
-   paths.
-2. The VPS runs `poll` headless and re-extracts a fresh API token from the saved
-   session as needed.
-3. When the session eventually expires, `poll` raises `OwaLoginRequired`; re-run
-   `login` on your laptop and re-copy `data/owa_profile/`. (Later milestones will
-   surface this as a Telegram "please re-login" nudge.)
+Full deploy walkthrough is in [`DEPLOY.md`](DEPLOY.md). The short version:
+set `OWA_UPLOAD_URL` in `.env` to the deployed server's `/owa/session`
+endpoint, and `login` pushes the encrypted session straight there — no
+manual file copying, on first deploy or any later re-login. When the
+session eventually expires, the agent notices on the next poll and posts a
+"please re-login" nudge to Telegram; re-running `login` on your laptop is
+the whole fix.
 
-> The session profile is sensitive (it grants access to your mailbox). Keep
-> `data/` private; restrict file permissions on the VPS.
+> `data/owa_state.enc` is sensitive (it grants access to your mailbox) even
+> though it's encrypted — keep `.env` (which holds the decryption key)
+> private too, on both your laptop and the VPS.
 
 ---
 
@@ -223,7 +227,7 @@ duplicates: [DuplicateCandidate(key='PROD-42', summary='[mailwright test] CSV ex
 
 ## What success looks like (the M2 gate)
 
-- [ ] `uv run pytest -q` → all 34 pass.
+- [ ] `uv run pytest -q` → all pass.
 - [ ] Smoke test prints `created=True` with a real Jira key and URL.
 - [ ] Second call prints `commented=True` with the same key.
 - [ ] The issue and its comment are visible in Jira.

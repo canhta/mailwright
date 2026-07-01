@@ -1,6 +1,7 @@
 import base64
 
 import httpx
+
 from mailwright.models import AttachmentContent, AttachmentMeta
 from mailwright.owa.rest_client import OutlookRestClient
 

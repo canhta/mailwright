@@ -82,10 +82,12 @@ OWA (Playwright session) ──token──> Outlook REST API
 State is a single SQLite file. Every external service (OWA, Jira, LLM, Telegram)
 is injected, so the pipeline is fully testable offline — run `uv run pytest -q`.
 
-Architecture details for contributors live in [`CLAUDE.md`](CLAUDE.md).
+Package layout and design rationale are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md);
+contributor setup and conventions are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Deployment
 
 A [`Dockerfile`](Dockerfile) builds on the Playwright image with browsers
-preinstalled. Log in once locally to create the session profile, then ship the
-`data/` profile to your headless host and run `agent`.
+preinstalled. Log in once locally, then either let `login` push the session
+straight to your deployed server (`OWA_UPLOAD_URL`) or copy the encrypted
+session file over yourself. Full walkthrough in [`docs/DEPLOY.md`](docs/DEPLOY.md).

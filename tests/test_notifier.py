@@ -1,8 +1,9 @@
 import asyncio
 
+from telegram.constants import ParseMode
+
 from mailwright.pipeline.message_service import OutgoingMessage
 from mailwright.telegram.notifier import TelegramNotifier
-from telegram.constants import ParseMode
 
 
 class FakeSent:

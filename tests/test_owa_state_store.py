@@ -1,4 +1,5 @@
 import pytest
+
 from mailwright.crypto import generate_key
 from mailwright.owa.session import OwaLoginRequired
 from mailwright.owa.state_store import (

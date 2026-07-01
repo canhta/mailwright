@@ -1,6 +1,7 @@
 import base64
 
 import httpx
+
 from mailwright.jira.client import JiraClient
 from mailwright.jira.models import TicketDraft
 
