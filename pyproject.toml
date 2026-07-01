@@ -59,8 +59,9 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 # Telegram update handlers: update.message is always set in message handlers
 # but typed as Message | None; suppressing union-attr for the bot wiring and
-# handler bodies.
-module = ["mailwright.telegram.bot", "mailwright.telegram.handlers"]
+# handler bodies. Also covers container.py's OpenAI(**kwargs) construction,
+# where mypy can't narrow the conditionally-built kwargs dict.
+module = ["mailwright.telegram.bot", "mailwright.telegram.handlers", "mailwright.container"]
 disable_error_code = ["union-attr", "arg-type", "return-value", "index"]
 
 [[tool.mypy.overrides]]

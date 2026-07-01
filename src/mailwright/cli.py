@@ -6,17 +6,13 @@ import httpx
 from openai import OpenAI
 
 from mailwright.config import Settings
+from mailwright.container import build_owa_client
 from mailwright.db.connection import get_connection
 from mailwright.db.schema import init_db
 from mailwright.llm.client import build_structured_llm
 from mailwright.models import Message
-from mailwright.owa.rest_client import OutlookRestClient
-from mailwright.owa.session import (
-    OwaSession,
-    interactive_login,
-    playwright_token_extractor,
-)
-from mailwright.owa.state_store import read_state_file, write_state_file
+from mailwright.owa.session import interactive_login
+from mailwright.owa.state_store import write_state_file
 from mailwright.poller.mail_poller import MailPoller
 from mailwright.repositories.processed_mails import ProcessedMailRepo
 from mailwright.tasks.classifier import MailClassifier
@@ -75,12 +71,7 @@ def _build_poller() -> MailPoller:
     conn = get_connection(settings.db_path)
     init_db(conn)
     repo = ProcessedMailRepo(conn)
-    session = OwaSession(
-        lambda: playwright_token_extractor(
-            read_state_file(settings.owa_state_path, settings.fernet_key)
-        )
-    )
-    client = OutlookRestClient(session.get_token, httpx.Client(timeout=30))
+    client = build_owa_client(settings)
     return MailPoller(client, repo, settings)
 
 
