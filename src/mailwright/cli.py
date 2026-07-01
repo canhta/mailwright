@@ -7,11 +7,11 @@ from openai import OpenAI
 
 from mailwright.brain.classifier import MailClassifier
 from mailwright.brain.drafter import TicketDrafter
-from mailwright.brain.llm import build_structured_llm
 from mailwright.brain.triage import TriageService
 from mailwright.config import Settings
 from mailwright.db.connection import get_connection
 from mailwright.db.schema import init_db
+from mailwright.llm.client import build_structured_llm
 from mailwright.models import Message
 from mailwright.owa.rest_client import OutlookRestClient
 from mailwright.owa.session import (

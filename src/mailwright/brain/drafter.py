@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 
-from mailwright.brain.llm import StructuredLLM
-from mailwright.brain.schemas import Draft
 from mailwright.jira.models import TicketDraft
+from mailwright.llm.client import StructuredLLM
+from mailwright.llm.schemas import Draft
 from mailwright.models import Message
 
 _SYSTEM = (

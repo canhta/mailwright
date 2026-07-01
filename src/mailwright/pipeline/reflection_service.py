@@ -1,4 +1,4 @@
-from mailwright.brain.schemas import Reflection
+from mailwright.llm.schemas import Reflection
 
 _SYSTEM = (
     "You refine how an assistant writes Jira tickets for one owner, based on "

@@ -1,5 +1,5 @@
-from mailwright.brain.llm import StructuredLLM
-from mailwright.brain.schemas import ReadDecision
+from mailwright.llm.client import StructuredLLM
+from mailwright.llm.schemas import ReadDecision
 from mailwright.models import AttachmentMeta
 
 _SYSTEM = (

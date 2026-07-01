@@ -1,5 +1,5 @@
-from mailwright.brain.llm import StructuredLLM
-from mailwright.brain.schemas import Classification
+from mailwright.llm.client import StructuredLLM
+from mailwright.llm.schemas import Classification
 from mailwright.models import Message
 
 _SYSTEM = (

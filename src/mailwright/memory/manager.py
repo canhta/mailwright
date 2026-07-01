@@ -1,7 +1,7 @@
 import logging
 
-from mailwright.brain.schemas import MemoryDecision
 from mailwright.jira.models import TicketDraft
+from mailwright.llm.schemas import MemoryDecision
 
 log = logging.getLogger(__name__)
 

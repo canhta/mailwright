@@ -1,5 +1,4 @@
 from mailwright.brain.drafter import DraftOutcome
-from mailwright.brain.schemas import Classification
 from mailwright.brain.triage import (
     AUTO_CREATE,
     IGNORE,
@@ -8,6 +7,7 @@ from mailwright.brain.triage import (
     TriageService,
 )
 from mailwright.jira.models import TicketDraft
+from mailwright.llm.schemas import Classification
 from mailwright.models import Message
 
 

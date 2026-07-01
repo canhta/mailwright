@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass
 
 from mailwright.brain.key_detector import find_jira_keys
-from mailwright.brain.schemas import TriageDecision
+from mailwright.llm.schemas import TriageDecision
 from mailwright.models import Message
 from mailwright.telegram.card import render_approval_card
 

@@ -1,6 +1,6 @@
-from mailwright.brain.schemas import Reflection
 from mailwright.db.connection import get_connection
 from mailwright.db.schema import init_db
+from mailwright.llm.schemas import Reflection
 from mailwright.pipeline.reflection_service import ReflectionService
 from mailwright.repositories.episodic import EpisodicRepo
 from mailwright.repositories.rulebook import RulebookRepo

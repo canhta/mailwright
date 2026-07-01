@@ -1,9 +1,9 @@
 """Tests for MemoryManager (the LLM-gated replacement for FeedbackRecorder)."""
 
-from mailwright.brain.schemas import MemoryDecision
 from mailwright.db.connection import get_connection
 from mailwright.db.schema import init_db
 from mailwright.jira.models import TicketDraft
+from mailwright.llm.schemas import MemoryDecision
 from mailwright.memory.manager import MemoryManager
 from mailwright.memory.vector_store import VectorStore
 from mailwright.repositories.episodic import EpisodicRepo

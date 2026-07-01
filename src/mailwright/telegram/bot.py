@@ -23,12 +23,12 @@ from mailwright.brain.attachment_gate import AttachmentGate
 from mailwright.brain.attachment_loader import AttachmentLoader
 from mailwright.brain.classifier import MailClassifier
 from mailwright.brain.drafter import TicketDrafter
-from mailwright.brain.llm import ToolCallLLM, build_structured_llm
 from mailwright.config import Settings
 from mailwright.db.connection import get_connection
 from mailwright.db.schema import init_db
 from mailwright.jira.client import JiraClient
 from mailwright.jira.ticket_service import TicketService
+from mailwright.llm.client import ToolCallLLM, build_structured_llm
 from mailwright.memory.context import MemoryContext
 from mailwright.memory.embedder import OpenAIEmbedder
 from mailwright.memory.manager import MemoryManager

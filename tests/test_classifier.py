@@ -1,5 +1,5 @@
 from mailwright.brain.classifier import MailClassifier
-from mailwright.brain.schemas import Classification
+from mailwright.llm.schemas import Classification
 from mailwright.models import Message
 
 

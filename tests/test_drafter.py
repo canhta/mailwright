@@ -1,6 +1,6 @@
 from mailwright.brain.drafter import DraftOutcome, TicketDrafter
-from mailwright.brain.schemas import Draft
 from mailwright.jira.models import TicketDraft
+from mailwright.llm.schemas import Draft
 from mailwright.models import Message
 
 

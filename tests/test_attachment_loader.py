@@ -1,5 +1,5 @@
 from mailwright.brain.attachment_loader import AttachmentLoader, LoadedAttachments
-from mailwright.brain.schemas import ReadDecision
+from mailwright.llm.schemas import ReadDecision
 from mailwright.models import AttachmentContent, AttachmentMeta, Message
 
 

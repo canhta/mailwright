@@ -1,6 +1,6 @@
 import pytest
-from mailwright.brain.llm import LlmError, OpenAIStructuredLLM
-from mailwright.brain.schemas import Classification
+from mailwright.llm.client import LlmError, OpenAIStructuredLLM
+from mailwright.llm.schemas import Classification
 
 
 class _Msg:
@@ -89,7 +89,7 @@ class _CreateClient:
 
 
 def test_json_object_llm_embeds_schema_and_validates():
-    from mailwright.brain.llm import JsonObjectLLM
+    from mailwright.llm.client import JsonObjectLLM
 
     payload = (
         '{"is_request": true, "needs_ticket": true, "issue_type": "Task", '
@@ -127,7 +127,7 @@ def test_parse_with_images_builds_content_parts():
 
 
 def test_text_llm_calls_create_and_returns_content():
-    from mailwright.brain.llm import OpenAITextLLM
+    from mailwright.llm.client import OpenAITextLLM
 
     client = _CreateClient("Hello, world!")
     llm = OpenAITextLLM(client, "gpt-4o-mini")
@@ -139,7 +139,7 @@ def test_text_llm_calls_create_and_returns_content():
 
 
 def test_build_structured_llm_selects_impl():
-    from mailwright.brain.llm import (
+    from mailwright.llm.client import (
         JsonObjectLLM,
         OpenAIStructuredLLM,
         build_structured_llm,

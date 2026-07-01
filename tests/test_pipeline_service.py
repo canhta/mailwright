@@ -1,9 +1,9 @@
 from mailwright.brain.attachment_loader import LoadedAttachments
 from mailwright.brain.drafter import DraftOutcome
-from mailwright.brain.schemas import Classification
 from mailwright.db.connection import get_connection
 from mailwright.db.schema import init_db
 from mailwright.jira.models import DuplicateCandidate, TicketDraft, TicketResult
+from mailwright.llm.schemas import Classification
 from mailwright.models import Message
 from mailwright.pipeline.service import PipelineService
 from mailwright.repositories.approvals import ApprovalRepo
