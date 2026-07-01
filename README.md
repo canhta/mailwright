@@ -68,15 +68,85 @@ essentials:
 
 ## How it works
 
+### Request flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Owner
+    participant Telegram
+    participant Mailwright
+    participant Outlook as Outlook Web
+    participant LLM
+    participant Jira
+
+    Mailwright->>Outlook: poll mailbox (OWA session token)
+    Outlook-->>Mailwright: new mail
+
+    Mailwright->>LLM: classify + draft (+ learned memory)
+    LLM-->>Mailwright: classification + draft
+
+    Mailwright->>Jira: search for duplicates
+
+    alt confident, no duplicates
+        Mailwright->>Jira: create / comment ticket
+        Mailwright->>Outlook: reply ticket link into thread
+        Mailwright->>Telegram: notify owner
+    else needs review
+        Mailwright->>Telegram: send approval card
+        Telegram->>Owner: approval card
+        Owner->>Telegram: approve / edit / reject
+        Telegram->>Mailwright: decision
+
+        opt approved or edited
+            Mailwright->>Jira: create / comment ticket
+            Mailwright->>Outlook: reply ticket link into thread
+        end
+    end
+
+    Jira-->>Mailwright: status change (webhook)
+    Mailwright->>Telegram: notify owner
+
+    Note over Mailwright: nightly reflection<br/>learns style + rules from every outcome
 ```
-OWA (Playwright session) ──token──> Outlook REST API
-        │
-   poll mail ──> classify ──> draft (with learned memory) ──> dedupe
-        │                                                        │
-   confident? ──yes──> create/comment Jira + upload + reply link
-        └──no──> Telegram approval card ──> you approve/edit/reject
-                                                        │
-                          feedback ──> nightly reflection ──> style + rules
+
+### Components
+
+```mermaid
+flowchart TB
+    Owner((Owner))
+
+    subgraph External["External services"]
+        Outlook[Outlook Web]
+        JiraCloud[Jira Cloud]
+        LLMProvider["LLM provider<br/>(OpenAI-compatible)"]
+    end
+
+    subgraph Mailwright["mailwright"]
+        Bot["Telegram bot<br/>commands + agent chat"]
+        Webhook["Webhook<br/>Jira status + OWA session upload"]
+        Poller["Poller<br/>(OWA session, Playwright)"]
+        Pipeline["Pipeline<br/>classify → draft → dedupe → triage"]
+        Agent["Agent<br/>tool-calling chat"]
+        DB[("SQLite<br/>tickets, approvals, memory")]
+    end
+
+    Owner <-->|chat, approval cards| Bot
+    Bot --> Pipeline
+    Bot --> Agent
+
+    Poller --> Outlook
+    Pipeline --> Poller
+    Pipeline --> LLMProvider
+    Pipeline --> JiraCloud
+    Pipeline --> DB
+
+    Agent --> LLMProvider
+    Agent --> JiraCloud
+    Agent --> DB
+
+    JiraCloud -->|status updates| Webhook
+    Webhook --> Bot
 ```
 
 State is a single SQLite file. Every external service (OWA, Jira, LLM, Telegram)
